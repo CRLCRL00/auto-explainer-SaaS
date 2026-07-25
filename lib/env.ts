@@ -16,8 +16,9 @@ export function getEnv() {
   if (cached) return cached;
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
-    console.error('❌ Invalid env:', parsed.error.flatten().fieldErrors);
-    throw new Error('Invalid environment');
+    const detail = JSON.stringify(parsed.error.flatten().fieldErrors);
+    console.error('[env] Invalid env:', detail);
+    throw new Error(`Invalid environment: ${detail}`);
   }
   cached = parsed.data;
   return cached;
