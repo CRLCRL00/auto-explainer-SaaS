@@ -33,7 +33,8 @@ export async function GET(
         'content-disposition': `attachment; filename="video-${params.id.slice(0, 8)}.mp4"`,
       },
     });
-  } catch {
+  } catch (err) {
+    logger.warn({ jobId: params.id, err: err instanceof Error ? err.message : String(err) }, 'download: file missing');
     return new Response('file missing', { status: 404 });
   }
 }
