@@ -26,8 +26,9 @@ export default function Home() {
       } else {
         setResult({ jobId: data.jobId });
       }
-    } catch (err: any) {
-      setResult({ error: err.message });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'unknown';
+      setResult({ error: msg });
     } finally {
       setSubmitting(false);
     }
