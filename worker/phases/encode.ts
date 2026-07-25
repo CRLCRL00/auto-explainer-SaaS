@@ -43,12 +43,12 @@ export async function phaseEncode(jobId: string) {
     outputPath: outPath,
   });
 
-  if (!ffmpegPath) {
+  const ffmpegBin: string = ffmpegPath ?? (() => {
     throw new Error(`[${jobId}] ffmpeg-static path unavailable (binary not bundled)`);
-  }
+  })();
 
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn(ffmpegPath, args, { stdio: 'inherit' });
+    const proc = spawn(ffmpegBin, args, { stdio: 'inherit' });
     proc.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`[${jobId}] ffmpeg exit ${code}`))));
     proc.on('error', (err) => reject(new Error(`[${jobId}] ffmpeg spawn: ${err.message}`)));
   });
