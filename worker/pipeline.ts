@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
-import { jobs } from '@/lib/schema';
+import { jobs, phaseEnum } from '@/lib/schema';
 import { recordEvent } from '@/lib/job-events';
 import { logger } from '@/lib/logger';
 import { phaseOutline } from './phases/outline';
@@ -10,15 +10,22 @@ import { phaseProbe } from './phases/probe';
 import { phaseRecord } from './phases/record';
 import { phaseEncode } from './phases/encode';
 
+type PhaseName = (typeof phaseEnum.enumValues)[number];
+
+interface PipelineStep {
+  name: PhaseName;
+  run: (jobId: string) => Promise<void>;
+}
+
 // v0.0.1 简化：所有阶段顺序跑，单 attempt，失败直接 failed。
 // v0.5 起加 retry + 撞墙拐点（spec §4）。
 // 注意：phaseScript 已 import 但未插入 PHASE_ORDER —— 留给 v0.5 在 outline 后插入。
-const PHASE_ORDER = [
-  { name: 'planning_done', run: phaseOutline },     // 完成 planning，等价于 planning_done
-  { name: 'html_ready',    run: phaseHtml },       // render + selector
-  { name: 'probing',       run: phaseProbe },
-  { name: 'recording_done',run: phaseRecord },
-  { name: 'done',          run: phaseEncode },
+const PHASE_ORDER: PipelineStep[] = [
+  { name: 'planning_done',  run: phaseOutline },     // 完成 planning，等价于 planning_done
+  { name: 'html_ready',     run: phaseHtml },       // render + selector
+  { name: 'probing',        run: phaseProbe },
+  { name: 'recording_done', run: phaseRecord },
+  { name: 'done',           run: phaseEncode },
 ];
 
 export async function runPipeline(jobId: string) {
@@ -30,7 +37,7 @@ export async function runPipeline(jobId: string) {
   try {
     for (const step of PHASE_ORDER) {
       logger.info({ jobId, phase: step.name }, 'phase starting');
-      await db.update(jobs).set({ phase: step.name as any, status: 'running', attempts: 1 })
+      await db.update(jobs).set({ phase: step.name, status: 'running', attempts: 1 })
         .where(eq(jobs.id, jobId));
 
       await step.run(jobId);
