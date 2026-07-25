@@ -20,9 +20,6 @@ beforeAll(() => {
   process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 });
 
-const token = Buffer.from('admin:changeme').toString('base64');
-const authHeader = { authorization: `Basic ${token}` };
-
 // Treat `sk-ant-...` / empty / undefined as "no real key".
 function hasRealAnthropicKey(): boolean {
   const k = process.env.ANTHROPIC_API_KEY;
@@ -62,6 +59,8 @@ describe('pipeline smoke', () => {
     expect(stat.size).toBeGreaterThan(10_000);
 
     const [updated] = await db.select().from(jobs).where((j: any) => j.id as any).limit(1);
+    // TODO(Task 14/15 land): replace above no-op predicate with `eq(jobs.id, jobId)`
+    // from drizzle-orm so updated refers to the seeded job, not an arbitrary row.
     expect(updated.status).toBe('done');
   }, { timeout: 600_000 });
 });
