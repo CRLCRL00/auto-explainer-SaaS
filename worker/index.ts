@@ -14,7 +14,8 @@ worker.on('completed', (job) => {
 });
 
 worker.on('failed', (job, err) => {
-  logger.error({ jobId: job?.data.jobId, err: err.message }, 'job failed');
+  // err can be undefined on rare BullMQ race; defend against TypeError
+  logger.error({ jobId: job?.data.jobId, err: err?.message ?? 'unknown error' }, 'job failed');
 });
 
 logger.info('worker started, waiting for jobs…');
