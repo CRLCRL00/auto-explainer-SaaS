@@ -10,7 +10,7 @@ interface Job {
   attempts: number;
   startedAt: string | null;
   finishedAt: string | null;
-  lastError: any;
+  lastError: unknown;
 }
 
 export default function JobStatusPage() {
@@ -26,12 +26,13 @@ export default function JobStatusPage() {
       try {
         const res = await fetch(`/api/jobs/${params.id}`, {
           headers: {
-            authorization: `Basic ${Buffer.from(`${process.env.NEXT_PUBLIC_BASIC_AUTH_USER ?? 'admin'}:${process.env.NEXT_PUBLIC_BASIC_AUTH_PASS ?? 'changeme'}`).toString('base64')}`,
+            authorization: `Basic ${btoa(`${process.env.NEXT_PUBLIC_BASIC_AUTH_USER ?? 'admin'}:${process.env.NEXT_PUBLIC_BASIC_AUTH_PASS ?? 'changeme'}`)}`,
           },
         });
         if (cancelled) return;
         if (res.status === 404) { setError('Job not found'); return; }
-        const data = await res.json();
+        if (!res.ok) { setError(`status_${res.status}`); return; }
+        const data = await res.json() as Job;
         setJob(data);
         if (data.status !== 'done' && data.status !== 'failed' && data.status !== 'dead') {
           timer = setTimeout(poll, 5000);

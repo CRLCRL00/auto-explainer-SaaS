@@ -16,7 +16,7 @@ export default function Home() {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          authorization: `Basic ${Buffer.from(`${process.env.NEXT_PUBLIC_BASIC_AUTH_USER ?? 'admin'}:${process.env.NEXT_PUBLIC_BASIC_AUTH_PASS ?? 'changeme'}`).toString('base64')}`,
+          authorization: `Basic ${btoa(`${process.env.NEXT_PUBLIC_BASIC_AUTH_USER ?? 'admin'}:${process.env.NEXT_PUBLIC_BASIC_AUTH_PASS ?? 'changeme'}`)}`,
         },
         body: JSON.stringify({ inputType: 'text', topic }),
       });
