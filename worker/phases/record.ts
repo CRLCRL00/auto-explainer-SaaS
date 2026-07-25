@@ -15,6 +15,7 @@ export async function phaseRecord(jobId: string) {
   const htmlUrl = 'file:///' + htmlPath.replace(/\\/g, '/');
 
   let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
+  let frameIdx = 0;
   try {
     browser = await puppeteer.launch({
       executablePath: CHROME_PATH,
@@ -41,7 +42,6 @@ export async function phaseRecord(jobId: string) {
       maxWidth: 1920, maxHeight: 1080, everyNthFrame: 1,
     });
 
-    let frameIdx = 0;
     const inflight: Promise<void>[] = [];
     await new Promise<void>((resolve) => {
       client.on('Page.screencastFrame', ({ data, sessionId }) => {
