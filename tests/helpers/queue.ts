@@ -11,8 +11,11 @@ export function makeTestQueue() {
   return {
     queue,
     async cleanup() {
-      await queue.obliterate({ force: true });
-      await conn.quit();
+      try {
+        await queue.obliterate({ force: true });
+      } finally {
+        await conn.quit();
+      }
     },
   };
 }
