@@ -15,7 +15,8 @@
     "db:migrate": "drizzle-kit migrate",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "next lint"
+    "lint": "next lint",
+    "deploy": "bash scripts/deploy.sh"
   },
   "dependencies": {
     "next": "^14.2.0",
