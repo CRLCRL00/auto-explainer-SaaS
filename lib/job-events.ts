@@ -12,6 +12,6 @@ export async function recordEvent(
     jobId,
     phase,
     event,
-    payload: payload as any,
+    payload,
   });
 }
