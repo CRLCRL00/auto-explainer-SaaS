@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, jsonb, varchar, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, jsonb, varchar, pgEnum, index } from 'drizzle-orm/pg-core';
 
 // 阶段枚举（spec §3.1）
 export const phaseEnum = pgEnum('phase', [
@@ -36,7 +36,9 @@ export const jobEvents = pgTable('job_events', {
   event: varchar('event', { length: 64 }).notNull(),
   payload: jsonb('payload'),
   at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index('job_events_job_id_idx').on(table.jobId),
+]);
 
 export const jobArtifacts = pgTable('job_artifacts', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -46,4 +48,6 @@ export const jobArtifacts = pgTable('job_artifacts', {
   sizeBytes: integer('size_bytes'),
   sha256: varchar('sha256', { length: 64 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index('job_artifacts_job_id_idx').on(table.jobId),
+]);
