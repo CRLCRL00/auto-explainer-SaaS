@@ -55,7 +55,7 @@ export default function JobStatusPage() {
       <p><b>Status:</b> {job.status}</p>
       <p><b>Phase:</b> {job.phase}</p>
       <p><b>Attempts:</b> {job.attempts}</p>
-      {job.lastError && (
+      {job.lastError != null && (
         <div className="result" style={{ color: '#f85149' }}>
           <b>Last error:</b> <pre>{JSON.stringify(job.lastError, null, 2)}</pre>
         </div>
