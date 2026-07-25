@@ -32,23 +32,25 @@ export async function phaseHtml(jobId: string) {
   <p class="anim d3">{{BEAT_${i}_TEXT}}</p>
 </div>`).join('\n');
 
-  // 替换 BEAT 标题 + 文本（来自 plan.visual_plan + script.md）
+  // 读 script.md (用于 BEAT 文本)
   const scriptPath = path.join(jobDir, 'script.md');
   const scriptRaw = await fs.readFile(scriptPath, 'utf8');
   const scriptBeats = parseScriptMd(scriptRaw);
 
+  // 1) 先注入 {{BEATS}}，让 tpl 内含 {{BEAT_i_TITLE/TEXT}} 占位符
+  // 2) 再 per-beat replace（用函数式 replacement 防 $&/$1/$$ 在 beat.name / script 里崩坏输出）
+  tpl = tpl.replaceAll('{{BEATS}}', () => beatsHtml);
   for (let i = 0; i < plan.beats.length; i++) {
     const beat = plan.beats[i];
     const text = scriptBeats.get(beat.id) ?? '';
-    const tplPlaceholder = `{{BEAT_${i}_TITLE}}`;
     // v0.0.1：title 用 beat.name，text 用 script
-    tpl = tpl.replace(tplPlaceholder, beat.name);
-    tpl = tpl.replace(`{{BEAT_${i}_TEXT}}`, text);
+    tpl = tpl.replaceAll(`{{BEAT_${i}_TITLE}}`, () => beat.name);
+    tpl = tpl.replaceAll(`{{BEAT_${i}_TEXT}}`, () => text);
   }
 
-  tpl = tpl.replace('{{TITLE}}', plan.title);
-  tpl = tpl.replace('{{BEATS}}', beatsHtml);
-  tpl = tpl.replace('{{BEATS_JSON}}', JSON.stringify(plan.beats.map((b: any) => ({
+  // 3) 最后全局占位符
+  tpl = tpl.replaceAll('{{TITLE}}', () => plan.title);
+  tpl = tpl.replaceAll('{{BEATS_JSON}}', () => JSON.stringify(plan.beats.map((b: any) => ({
     id: b.id, name: b.name, duration_ms: b.duration_ms,
   }))));
 
