@@ -59,7 +59,8 @@ function show(i) {
   const el = document.getElementById(BEATS[i].id);
   setTimeout(() => el.classList.add('in'), 50);
   el.querySelectorAll('.anim').forEach((a, idx) => {
-    setTimeout(() => a.classList.add('in'), 50 + 250 + idx * 150);
+    // align with CSS .d1/.d2/.d3/.d4 = 100/250/400/550ms delays
+    setTimeout(() => a.classList.add('in'), 100 + idx * 150);
   });
 }
 function next() {
