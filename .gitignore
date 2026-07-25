@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+.env*
+!.env.example
+storage/jobs/*
+!storage/jobs/.gitkeep
+*.log
+.DS_Store
+coverage/
+.tsbuildinfo
+test-results/
+playwright-report/
+.idea/
+.vscode/
