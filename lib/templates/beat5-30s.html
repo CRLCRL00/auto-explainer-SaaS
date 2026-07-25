@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>{{TITLE}}</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --fg: #c9d1d9;
+    --accent: #58a6ff;
+    --muted: #8b949e;
+    --bignum: #b026ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+  body { font-family: ui-sans-serif, "Microsoft YaHei"; color: var(--fg); }
+  .beat {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    opacity: 0; visibility: hidden;
+    transition: opacity .4s, visibility 0s linear .4s;
+    padding: 80px 60px 110px;
+    text-align: center;
+  }
+  .beat.in { opacity: 1; visibility: visible; transition: opacity .4s, visibility 0s linear 0s; }
+  .bignum {
+    position: absolute; top: 60px; left: 60px;
+    font-size: 280px; font-weight: 900; line-height: .8;
+    color: var(--bignum); opacity: .022;
+    font-family: "Inter", system-ui;
+  }
+  h1 {
+    font-size: clamp(64px, 8vw, 120px);
+    color: var(--accent); font-weight: 900;
+    text-shadow: -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 3px 3px 0 #000, 0 0 24px rgba(0,0,0,.5);
+    margin-bottom: 32px; letter-spacing: -2px;
+  }
+  h1 em {
+    font-family: "Fraunces", "Source Serif Pro", serif;
+    font-style: italic; font-weight: 700;
+  }
+  p { font-size: clamp(28px, 3vw, 44px); color: var(--fg); line-height: 1.5; max-width: 1500px; }
+  .anim { opacity: 0; transform: translateY(40px); transition: opacity .7s, transform .7s; }
+  .beat.in .anim.in { opacity: 1; transform: none; }
+  .beat.in .anim.d1 { transition-delay: .1s; }
+  .beat.in .anim.d2 { transition-delay: .25s; }
+  .beat.in .anim.d3 { transition-delay: .4s; }
+  .beat.in .anim.d4 { transition-delay: .55s; }
+</style>
+</head>
+<body>
+{{BEATS}}
+
+<script>
+const BEATS = {{BEATS_JSON}};
+let cur = -1;
+function show(i) {
+  document.querySelectorAll('.beat').forEach((b) => b.classList.remove('in'));
+  const el = document.getElementById(BEATS[i].id);
+  setTimeout(() => el.classList.add('in'), 50);
+  el.querySelectorAll('.anim').forEach((a, idx) => {
+    setTimeout(() => a.classList.add('in'), 50 + 250 + idx * 150);
+  });
+}
+function next() {
+  cur = (cur + 1) % BEATS.length;
+  show(cur);
+}
+window.__ready = true;
+
+// query ?autoplay=1 → 自动播放时间线
+if (location.search.includes('autoplay')) {
+  window.__autoplay = true;
+  let i = 0;
+  async function loop() {
+    if (i >= BEATS.length) { window.__done = true; return; }
+    show(i);
+    await new Promise(r => setTimeout(r, BEATS[i].duration_ms));
+    i++;
+    loop();
+  }
+  setTimeout(loop, 500);
+}
+</script>
+</body>
+</html>
