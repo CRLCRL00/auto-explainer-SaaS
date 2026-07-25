@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 beforeAll(() => {
   // set envs that getEnv() will read; otherwise tests will fail when
@@ -9,6 +9,22 @@ beforeAll(() => {
   process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'sk-ant-test-placeholder-key';
   process.env.BASIC_AUTH_USER = 'admin';
   process.env.BASIC_AUTH_PASS = 'changeme';
+});
+
+// 测试组结束清理 DB（避免重复跑测试污染 aesaas.jobs/job_events/job_artifacts）
+// 用 lazy import：ES module 顶层 import 在 beforeAll 之前就执行，会触发 getEnv()；
+// 这里必须 lazy，等 env 全部就位后再 import。
+afterAll(async () => {
+  try {
+    const { getDb } = await import('@/lib/db');
+    const { jobs, jobEvents, jobArtifacts } = await import('@/lib/schema');
+    const db = getDb();
+    await db.delete(jobArtifacts);
+    await db.delete(jobEvents);
+    await db.delete(jobs);
+  } catch {
+    // 测试清理失败不阻塞主测试结果
+  }
 });
 
 const token = Buffer.from('admin:changeme').toString('base64');
