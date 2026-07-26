@@ -98,6 +98,12 @@ export async function callLlm(opts: {
   if (cfg.provider === 'anthropic') {
     return callAnthropic(cfg, opts, logger);
   }
+  if (cfg.provider === 'minimax') {
+    // MiniMax 不走 OpenAI SDK 包装：用户决策 (commit 后 notes)。MiniMax-M3 的 chat 实际是
+    // /v1/text/chatcompletion_v2 路径，OpenAI SDK 会拼 /v1/chat/completions → 路径错。
+    // 直接 fetch 到 MiniMax 自己的 endpoint，body 用 OpenAI-style messages。
+    return callMinimax(cfg, opts, logger);
+  }
   return callOpenAICompat(cfg, opts, logger);
 }
 
@@ -182,6 +188,88 @@ async function callOpenAICompat(
 // ─────────────────────────────────
 // 旧 API (back-compat for Task 14/15)：delegate 到 callLlm()
 // ─────────────────────────────────
+
+/**
+ * MiniMax-M3 chat 调用：直接 fetch 到 /v1/text/chatcompletion_v2。
+ *
+ * 为什么不用 OpenAI SDK：MiniMax-M3 不接受 OpenAI 标准 /v1/chat/completions 路径
+ * （probe 验证：OpenAI 路径返 402 但 base_resp 不含 1008 业务码）；
+ * MiniMax 自有 path /v1/text/chatcompletion_v2 接受 OpenAI-style body + 返回 base_resp 业务码。
+ *
+ * body 用 { model, messages: [{role, content}], max_tokens } (OpenAI 兼容)，
+ * auth 用 Authorization: Bearer ${apiKey} (MiniMax 官方 docs 验证)。
+ */
+async function callMinimax(
+  cfg: ResolvedLlmConfig,
+  opts: { system?: string; messages: LlmMessage[]; maxTokens?: number },
+  logger: { warn: (obj: object, msg: string) => void },
+): Promise<string> {
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
+  if (opts.system) messages.push({ role: 'system', content: opts.system });
+  for (const m of opts.messages) messages.push(m);
+
+  // baseURL = 'https://api.minimaxi.com/v1'（来自 settings；PROVIDER_DEFAULT_BASEURL fallback）
+  const baseURL = cfg.baseURL ?? 'https://api.minimaxi.com/v1';
+  const url = `${baseURL.replace(/\/+$/, '')}/text/chatcompletion_v2`;
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cfg.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: cfg.model,
+          messages,
+          max_tokens: opts.maxTokens ?? 4096,
+        }),
+      });
+      const text = await res.text();
+      let body: unknown;
+      try { body = JSON.parse(text); } catch { body = text; }
+      // MiniMax 业务码：HTTP 200 但 base_resp.status_code != 0 也是错误
+      // 1008 = insufficient balance, 2013 = invalid params 等
+      const baseResp = (body as { base_resp?: { status_code?: number; status_msg?: string } } | null)?.base_resp;
+      const businessCode = baseResp?.status_code ?? 0;
+      const businessMsg = baseResp?.status_msg ?? '';
+      if (businessCode !== 0) {
+        // 业务错（HTTP 200 + base_resp 业务码）— 4xx 类立即抛错不 retry
+        if (businessCode >= 4000 && businessCode < 5000) {
+          throw new Error(`minimax ${businessCode} ${businessMsg}`);
+        }
+        // 1008/2013 等业务码也属失败 → 立即抛
+        throw new Error(`minimax ${businessCode} ${businessMsg}`);
+      }
+      if (!res.ok) {
+        if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+          throw new Error(`minimax ${res.status}: ${text.slice(0, 200)}`);
+        }
+        throw new Error(`minimax ${res.status}: ${text.slice(0, 200)}`);
+      }
+      // success — parse MiniMax response (OpenAI-style choices + base_resp)
+      const parsed = body as { choices?: Array<{ message?: { content?: string } }> };
+      const content = parsed.choices?.[0]?.message?.content;
+      if (!content) throw new Error('minimax empty completion');
+      return content;
+    } catch (err: unknown) {
+      lastErr = err;
+      const status = err instanceof Error && /minimax (\d{3})/.exec(err.message)
+        ? Number(/minimax (\d{3})/.exec(err.message)![1])
+        : undefined;
+      if (status && status >= 400 && status < 500 && status !== 429) break;
+      const backoff = Math.min(2 ** attempt * 1000, 16000);
+      logger.warn(
+        { attempt, backoff, err: err instanceof Error ? err.message : String(err) },
+        'minimax retry',
+      );
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
+  throw lastErr;
+}
 
 /** @deprecated Use getLlmClient() instead — kept for back-compat. */
 export async function getAnthropic(): Promise<Anthropic> {
