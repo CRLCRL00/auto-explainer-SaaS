@@ -5,6 +5,8 @@ out/
 !.env.example
 storage/jobs/*
 !storage/jobs/.gitkeep
+storage/*.json
+!storage/.gitkeep
 *.log
 .DS_Store
 coverage/
