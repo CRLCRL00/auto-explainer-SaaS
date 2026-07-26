@@ -38,7 +38,8 @@ export default function Home() {
     <main>
       <h1>Auto-Explainer · v0.0.1 alpha</h1>
       <p style={{ color: 'var(--muted)', marginBottom: 24 }}>
-        内部 alpha。提交一个 topic，等 ~10 分钟拿到 mp4。
+        内部 alpha。提交一个 topic，等 ~10 分钟拿到 mp4。{' '}
+        <a href="/settings">LLM 设置 →</a>
       </p>
       <form onSubmit={onSubmit}>
         <label htmlFor="topic">Topic 主题（中英都行，≤500 字）</label>
