@@ -15,11 +15,13 @@ function authMw() {
   return createBasicAuthMiddleware({ user: env.BASIC_AUTH_USER, pass: env.BASIC_AUTH_PASS });
 }
 
-// 10KB 上限：model + apiKey 都远小于此；防止恶意大 body OOM。
+// 10KB 上限：provider + model + baseURL + apiKey 都远小于此；防止恶意大 body OOM。
 const MAX_BODY_BYTES = 10 * 1024;
 
 const InputSchema = z.object({
+  provider: z.enum(['anthropic', 'openai-compatible']).optional(),
   model: z.string().min(1).max(80),
+  baseURL: z.string().max(500).optional(),
   apiKey: z.string().min(10).max(200),
 });
 
@@ -64,9 +66,19 @@ export async function POST(req: Request) {
   }
 
   try {
-    await writeLlmSettings({ model: parsed.data.model, apiKey: parsed.data.apiKey });
+    await writeLlmSettings({
+      provider: parsed.data.provider,
+      model: parsed.data.model,
+      baseURL: parsed.data.baseURL,
+      apiKey: parsed.data.apiKey,
+    });
     return NextResponse.json(
-      { ok: true, model: parsed.data.model, configured: true },
+      {
+        ok: true,
+        provider: parsed.data.provider ?? 'anthropic',
+        model: parsed.data.model,
+        configured: true,
+      },
       { status: 200 },
     );
   } catch (err) {

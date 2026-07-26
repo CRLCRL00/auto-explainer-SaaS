@@ -103,17 +103,28 @@ describe('clearLlmSettings', () => {
 describe('redactSettings', () => {
   it('returns configured:true and the model when apiKey is present', () => {
     const redacted = redactSettings({ model: 'claude-sonnet-4-5', apiKey: 'sk-ant-very-secret' });
-    expect(redacted).toEqual({ model: 'claude-sonnet-4-5', configured: true });
+    expect(redacted).toEqual({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      baseURL: null,
+      configured: true,
+    });
     expect(JSON.stringify(redacted)).not.toContain('sk-ant-very-secret');
   });
 
   it('returns configured:false when apiKey is missing/empty', () => {
-    expect(redactSettings({ model: 'm' })).toEqual({ model: 'm', configured: false });
-    expect(redactSettings({ model: 'm', apiKey: '' })).toEqual({ model: 'm', configured: false });
+    expect(redactSettings({ model: 'm' })).toEqual({
+      provider: 'anthropic', model: 'm', baseURL: null, configured: false,
+    });
+    expect(redactSettings({ model: 'm', apiKey: '' })).toEqual({
+      provider: 'anthropic', model: 'm', baseURL: null, configured: false,
+    });
   });
 
   it('returns model:null, configured:false for null input', () => {
-    expect(redactSettings(null)).toEqual({ model: null, configured: false });
+    expect(redactSettings(null)).toEqual({
+      provider: 'anthropic', model: null, baseURL: null, configured: false,
+    });
   });
 
   it('NEVER exposes apiKey value in the output (regression)', () => {
@@ -121,6 +132,72 @@ describe('redactSettings', () => {
     const redacted = redactSettings({ model: 'm', apiKey: SECRET });
     // 防御性序列化检查：整个对象的字符串表示里不能出现密钥
     expect(Object.values(redacted)).not.toContain(SECRET);
-    expect(Object.keys(redacted)).toEqual(['model', 'configured']);
+    expect(Object.keys(redacted).sort()).toEqual(['baseURL', 'configured', 'model', 'provider']);
+  });
+});
+
+describe('provider + baseURL (provider dispatch support)', () => {
+  it('round-trips provider and baseURL alongside model and apiKey', async () => {
+    await writeLlmSettings(
+      {
+        provider: 'openai-compatible',
+        model: 'deepseek-chat',
+        baseURL: 'https://api.deepseek.com/v1',
+        apiKey: 'sk-test-1234567890abcdef',
+      },
+      filePath,
+    );
+    const result = await readLlmSettings(filePath);
+    expect(result).toEqual({
+      provider: 'openai-compatible',
+      model: 'deepseek-chat',
+      baseURL: 'https://api.deepseek.com/v1',
+      apiKey: 'sk-test-1234567890abcdef',
+    });
+  });
+
+  it('drops provider when value is not a recognized enum', async () => {
+    await writeLlmSettings(
+      {
+        // @ts-expect-error — testing runtime validation against invalid provider
+        provider: 'cohere',
+        model: 'm',
+        apiKey: 'sk-ant-test-1234567890',
+      },
+      filePath,
+    );
+    const result = await readLlmSettings(filePath);
+    expect(result?.provider).toBeUndefined();
+    expect(result?.model).toBe('m');
+  });
+
+  it('redactSettings includes provider + baseURL but never apiKey', () => {
+    const SECRET = 'sk-do-not-leak-very-secret-key-9999';
+    const redacted = redactSettings({
+      provider: 'openai-compatible',
+      model: 'deepseek-chat',
+      baseURL: 'https://api.deepseek.com/v1',
+      apiKey: SECRET,
+    });
+    expect(redacted).toEqual({
+      provider: 'openai-compatible',
+      model: 'deepseek-chat',
+      baseURL: 'https://api.deepseek.com/v1',
+      configured: true,
+    });
+    expect(Object.values(redacted)).not.toContain(SECRET);
+    expect(Object.keys(redacted).sort()).toEqual(['baseURL', 'configured', 'model', 'provider']);
+  });
+
+  it('redactSettings falls back to anthropic default when provider missing/invalid', () => {
+    expect(redactSettings({ model: 'm', apiKey: 'sk-1234567890' }).provider).toBe('anthropic');
+    // @ts-expect-error — testing invalid provider
+    expect(redactSettings({ provider: 'bogus', model: 'm', apiKey: 'sk-1234567890' }).provider).toBe('anthropic');
+    expect(redactSettings(null)).toEqual({
+      provider: 'anthropic',
+      model: null,
+      baseURL: null,
+      configured: false,
+    });
   });
 });

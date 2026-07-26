@@ -21,7 +21,7 @@ vi.mock('@/lib/llm-settings', async () => {
   };
 });
 
-import { getAnthropic } from '@/lib/llm';
+import { getAnthropic, getLlmClient } from '@/lib/llm';
 import { readLlmSettings } from '@/lib/llm-settings';
 
 const mockedRead = vi.mocked(readLlmSettings);
@@ -73,5 +73,62 @@ describe('lib/llm ↔ lib/llm-settings integration', () => {
 
     // 两个 client 是不同实例（每调用 new），证明没有缓存
     expect(c1).not.toBe(c2);
+  });
+});
+
+describe('getLlmClient() provider dispatch', () => {
+  it('returns anthropic client when settings.provider is unset (default)', async () => {
+    mockedRead.mockResolvedValueOnce({ model: 'claude-sonnet-4-5', apiKey: 'sk-ant-test-1234567890' });
+    const result = await getLlmClient();
+    expect(result.provider).toBe('anthropic');
+    expect(result.client).toBeDefined();
+  });
+
+  it('returns openai-compatible client when settings.provider = openai-compatible', async () => {
+    mockedRead.mockResolvedValueOnce({
+      provider: 'openai-compatible',
+      model: 'deepseek-chat',
+      baseURL: 'https://api.deepseek.com/v1',
+      apiKey: 'sk-deepseek-1234567890',
+    });
+    const result = await getLlmClient();
+    expect(result.provider).toBe('openai-compatible');
+    expect(result.client).toBeDefined();
+  });
+
+  it('respects opts.model override over settings.model', async () => {
+    mockedRead.mockResolvedValueOnce({
+      model: 'settings-default-model',
+      apiKey: 'sk-ant-test-1234567890',
+    });
+    const result = await getLlmClient({ model: 'opts-override-model' });
+    expect(result.provider).toBe('anthropic');
+    // Anthropic/OpenAI SDK instance 不暴露 model；通过构造成功 + provider 验证
+  });
+
+  it('respects opts.model override for openai-compatible', async () => {
+    mockedRead.mockResolvedValueOnce({
+      provider: 'openai-compatible',
+      model: 'settings-default',
+      baseURL: 'https://api.deepseek.com/v1',
+      apiKey: 'sk-test-1234567890',
+    });
+    const result = await getLlmClient({ model: 'opts-override' });
+    expect(result.provider).toBe('openai-compatible');
+  });
+
+  it('does not cache: each getLlmClient() call re-reads settings', async () => {
+    mockedRead.mockResolvedValueOnce({
+      provider: 'openai-compatible',
+      model: 'a',
+      apiKey: 'sk-1234567890',
+    });
+    const r1 = await getLlmClient();
+    mockedRead.mockResolvedValueOnce(null);
+    const r2 = await getLlmClient();
+    // 两个 client 是不同实例（每调用 new），证明没有缓存
+    expect(r1).not.toBe(r2);
+    expect(r1.provider).toBe('openai-compatible');
+    expect(r2.provider).toBe('anthropic'); // fallback
   });
 });
