@@ -34,7 +34,7 @@ export async function readLlmSettings(filePath: string = DEFAULT_SETTINGS_PATH):
     // 损坏的 JSON：当作未配置（错误不抛，alpha 期间宽松处理）
     return null;
   }
-  if (!parsed || typeof parsed !== 'object') return null;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const obj = parsed as Record<string, unknown>;
   const out: LlmSettings = {};
   if (typeof obj.model === 'string' && obj.model.length > 0) out.model = obj.model;
