@@ -57,9 +57,17 @@ export async function readLlmSettings(filePath: string = DEFAULT_SETTINGS_PATH):
   return out;
 }
 
+/**
+ * 写入 settings。
+ *
+ * 默认 overwrite 模式：仅 payload 中的字段会落盘，未传字段会被丢弃。
+ * `merge: true` 模式：先读旧 settings 作为 base，仅 overwrite 传入的非空字段
+ *  —— 这样 UI 可以"切 provider/model 但保留旧 key"，key 不需要在每次 save 都重传。
+ */
 export async function writeLlmSettings(
   settings: LlmSettings,
   filePath: string = DEFAULT_SETTINGS_PATH,
+  opts: { merge?: boolean } = {},
 ): Promise<void> {
   // 仅保留 string/enum 字段，避免 undefined 落盘
   const payload: Record<string, string> = {};
@@ -68,10 +76,24 @@ export async function writeLlmSettings(
   if (typeof settings.baseURL === 'string' && settings.baseURL.length > 0) payload.baseURL = settings.baseURL;
   if (typeof settings.apiKey === 'string' && settings.apiKey.length > 0) payload.apiKey = settings.apiKey;
 
+  let finalPayload = payload;
+  if (opts.merge) {
+    const existing = await readLlmSettings(filePath);
+    const merged: Record<string, string> = {};
+    // base：旧值
+    if (isProvider(existing?.provider)) merged.provider = existing.provider;
+    if (typeof existing?.model === 'string' && existing.model.length > 0) merged.model = existing.model;
+    if (typeof existing?.baseURL === 'string' && existing.baseURL.length > 0) merged.baseURL = existing.baseURL;
+    if (typeof existing?.apiKey === 'string' && existing.apiKey.length > 0) merged.apiKey = existing.apiKey;
+    // overlay：新 payload 覆盖
+    for (const [k, v] of Object.entries(payload)) merged[k] = v;
+    finalPayload = merged;
+  }
+
   // 原子写入：先写 .tmp，再 rename。fs.rename 在同文件系统下是原子的。
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tmpPath = `${filePath}.tmp`;
-  await fs.writeFile(tmpPath, JSON.stringify(payload, null, 2), 'utf8');
+  await fs.writeFile(tmpPath, JSON.stringify(finalPayload, null, 2), 'utf8');
   await fs.rename(tmpPath, filePath);
 }
 

@@ -132,3 +132,34 @@ describe('getLlmClient() provider dispatch', () => {
     expect(r2.provider).toBe('anthropic'); // fallback
   });
 });
+
+describe('fast-fail on missing apiKey for openai-compatible (P1-1 fix)', () => {
+  it('throws immediately without retry when provider=openai-compatible and apiKey is empty', async () => {
+    mockedRead.mockResolvedValueOnce({
+      provider: 'openai-compatible',
+      model: 'deepseek-chat',
+      // 注意：故意不传 apiKey
+    });
+    // 必须立即抛错，不应走 retry loop
+    await expect(getLlmClient()).rejects.toThrow(/missing apiKey for openai-compatible/);
+  });
+
+  it('throws when provider=openai-compatible and apiKey is empty string', async () => {
+    mockedRead.mockResolvedValueOnce({
+      provider: 'openai-compatible',
+      model: 'deepseek-chat',
+      apiKey: '',
+    });
+    await expect(getLlmClient()).rejects.toThrow(/missing apiKey/);
+  });
+
+  it('does NOT throw on empty apiKey when provider=anthropic (falls back to env)', async () => {
+    mockedRead.mockResolvedValueOnce({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      // 无 apiKey → 走 env.ANTHROPIC_API_KEY fallback
+    });
+    const result = await getLlmClient();
+    expect(result.provider).toBe('anthropic');
+  });
+});

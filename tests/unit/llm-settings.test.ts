@@ -128,10 +128,10 @@ describe('redactSettings', () => {
   });
 
   it('NEVER exposes apiKey value in the output (regression)', () => {
-    const SECRET = 'sk-ant-do-not-leak-very-secret-key-9999';
-    const redacted = redactSettings({ model: 'm', apiKey: SECRET });
+    const SENTINEL = '<TEST_KEY_REDACT_GUARD>';
+    const redacted = redactSettings({ model: 'm', apiKey: SENTINEL });
     // 防御性序列化检查：整个对象的字符串表示里不能出现密钥
-    expect(Object.values(redacted)).not.toContain(SECRET);
+    expect(Object.values(redacted)).not.toContain(SENTINEL);
     expect(Object.keys(redacted).sort()).toEqual(['baseURL', 'configured', 'model', 'provider']);
   });
 });
@@ -199,5 +199,50 @@ describe('provider + baseURL (provider dispatch support)', () => {
       baseURL: null,
       configured: false,
     });
+  });
+});
+
+describe('writeLlmSettings({ merge: true }) — P1-2 fix', () => {
+  it('preserves old apiKey when new payload omits it', async () => {
+    await writeLlmSettings(
+      { provider: 'anthropic', model: 'old-model', apiKey: '<TEST_KEY>' },
+      filePath,
+    );
+    await writeLlmSettings({ model: 'new-model' }, filePath, { merge: true });
+    const result = await readLlmSettings(filePath);
+    expect(result).toEqual({
+      provider: 'anthropic',
+      model: 'new-model',
+      apiKey: '<TEST_KEY>',
+    });
+  });
+
+  it('overwrites apiKey when new payload provides it (even with merge:true)', async () => {
+    await writeLlmSettings(
+      { provider: 'openai-compatible', model: 'm1', apiKey: '<TEST_KEY_OLD>' },
+      filePath,
+    );
+    await writeLlmSettings({ apiKey: '<TEST_KEY_NEW>' }, filePath, { merge: true });
+    const result = await readLlmSettings(filePath);
+    expect(result?.apiKey).toBe('<TEST_KEY_NEW>');
+    expect(result?.provider).toBe('openai-compatible');
+    expect(result?.model).toBe('m1');
+  });
+
+  it('without merge:true, behaves like overwrite (existing fields dropped)', async () => {
+    await writeLlmSettings(
+      { provider: 'anthropic', model: 'old', apiKey: '<TEST_KEY>' },
+      filePath,
+    );
+    await writeLlmSettings({ model: 'new' }, filePath);
+    const result = await readLlmSettings(filePath);
+    expect(result).toEqual({ model: 'new' });
+    expect(result?.apiKey).toBeUndefined();
+  });
+
+  it('merge:true with no existing settings behaves like overwrite (no-op baseline)', async () => {
+    await writeLlmSettings({ model: 'fresh', apiKey: '<TEST_KEY>' }, filePath, { merge: true });
+    const result = await readLlmSettings(filePath);
+    expect(result).toEqual({ model: 'fresh', apiKey: '<TEST_KEY>' });
   });
 });

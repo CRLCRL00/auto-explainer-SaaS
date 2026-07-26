@@ -20,9 +20,14 @@ const MAX_BODY_BYTES = 10 * 1024;
 
 const InputSchema = z.object({
   provider: z.enum(['anthropic', 'openai-compatible']).optional(),
-  model: z.string().min(1).max(80),
+  // model 和 apiKey 都 optional — 但至少要传一个能区分"换了什么"。
+  // 实际 merge 语义：
+  //   - 传了 model → 覆盖旧 model（可以保留旧 apiKey）
+  //   - 传了 apiKey → 覆盖旧 apiKey（可以保留旧 model）
+  //   - 两个都不传 → 400 (no-op)
+  model: z.string().min(1).max(80).optional(),
   baseURL: z.string().max(500).optional(),
-  apiKey: z.string().min(10).max(200),
+  apiKey: z.string().min(10).max(200).optional(),
 });
 
 export async function GET(req: Request) {
@@ -65,19 +70,35 @@ export async function POST(req: Request) {
     );
   }
 
+  // 没传 model 也没传 apiKey → no-op，明确拒绝避免 silent
+  if (parsed.data.model === undefined && parsed.data.apiKey === undefined) {
+    return NextResponse.json(
+      { error: 'empty_update', message: 'must provide at least model or apiKey' },
+      { status: 400 },
+    );
+  }
+
   try {
-    await writeLlmSettings({
-      provider: parsed.data.provider,
-      model: parsed.data.model,
-      baseURL: parsed.data.baseURL,
-      apiKey: parsed.data.apiKey,
-    });
+    // merge 模式：未传字段保留旧值，让 UI 能"切 provider/model 不重传 key"
+    await writeLlmSettings(
+      {
+        provider: parsed.data.provider,
+        model: parsed.data.model,
+        baseURL: parsed.data.baseURL,
+        apiKey: parsed.data.apiKey,
+      },
+      undefined,
+      { merge: true },
+    );
+    // 回读最新状态用于响应 (apiKey 仍 redact)
+    const updated = await readLlmSettings();
+    const redacted = redactSettings(updated);
     return NextResponse.json(
       {
         ok: true,
-        provider: parsed.data.provider ?? 'anthropic',
-        model: parsed.data.model,
-        configured: true,
+        provider: redacted.provider,
+        model: redacted.model,
+        configured: redacted.configured,
       },
       { status: 200 },
     );

@@ -208,13 +208,15 @@ export default function SettingsPage() {
           ))}
         </select>
 
-        <label htmlFor="model">Model 模型（任意字符串，留空保存将使用 provider 默认）</label>
+        <label htmlFor="model">
+          Model 模型（任意字符串；留空保存时保留旧 model；不修改 model 只改 key 也可以）
+        </label>
         <input
           id="model"
           type="text"
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder={DEFAULT_MODEL}
+          placeholder={current?.model ?? DEFAULT_MODEL}
           autoComplete="off"
           disabled={busy}
         />
@@ -260,20 +262,23 @@ export default function SettingsPage() {
         )}
 
         <label htmlFor="apiKey">
-          API Key（{showBaseURL ? <code>sk-...</code> : <code>sk-ant-...</code>}，粘贴后保存即覆盖）
+          API Key（{showBaseURL ? <code>sk-...</code> : <code>sk-ant-...</code>}；留空保存时保留旧 key；只改 model 也可以）
         </label>
         <input
           id="apiKey"
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder={current?.configured ? '（已配置，留空保存可保留旧 key）' : showBaseURL ? 'sk-...' : 'sk-ant-...'}
+          placeholder={current?.configured ? '（已配置；留空保留旧 key）' : showBaseURL ? 'sk-...' : 'sk-ant-...'}
           autoComplete="off"
           disabled={busy}
         />
 
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-          <button type="submit" disabled={busy || apiKey.length === 0}>
+          <button
+            type="submit"
+            disabled={busy || (apiKey.length === 0 && model.trim().length === 0)}
+          >
             {busy ? '保存中…' : '保存'}
           </button>
           <button

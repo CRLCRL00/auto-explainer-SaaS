@@ -45,9 +45,14 @@ async function resolveConfig(opts: { model?: string }): Promise<ResolvedLlmConfi
     const apiKey = settings?.apiKey ?? getEnv().ANTHROPIC_API_KEY;
     return { provider, model, apiKey };
   }
-  // openai-compatible: apiKey 必填（否则 OpenAI SDK 会抛 'missing api key'）。
-  // baseURL 留空 → SDK 默认 https://api.openai.com/v1。
+  // openai-compatible: apiKey 必填。空值直接抛 clear error，避开 3 次 retry loop (~7s)。
   const apiKey = settings?.apiKey ?? '';
+  if (apiKey.length === 0) {
+    throw new Error(
+      'missing apiKey for openai-compatible provider — paste an API key via /settings',
+    );
+  }
+  // baseURL 留空 → SDK 默认 https://api.openai.com/v1。
   const baseURL = settings?.baseURL ?? undefined;
   return { provider, model, apiKey, baseURL };
 }
@@ -178,7 +183,6 @@ async function callOpenAICompat(
 
 /** @deprecated Use getLlmClient() instead — kept for back-compat. */
 export async function getAnthropic(): Promise<Anthropic> {
-  const { getLlmClient } = await import('./llm');
   const res = await getLlmClient();
   if (res.provider !== 'anthropic') {
     throw new Error('getAnthropic() called but provider is openai-compatible; use getLlmClient()');
