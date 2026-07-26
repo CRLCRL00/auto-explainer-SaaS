@@ -27,14 +27,14 @@ export interface LlmMessage {
 }
 
 interface ResolvedLlmConfig {
-  provider: 'anthropic' | 'openai-compatible';
+  provider: 'anthropic' | 'openai-compatible' | 'minimax';
   model: string;
   apiKey: string;
   baseURL?: string;
 }
 
 async function resolveConfig(opts: { model?: string }): Promise<ResolvedLlmConfig> {
-  const { readLlmSettings, DEFAULT_PROVIDER } = await import('./llm-settings');
+  const { readLlmSettings, DEFAULT_PROVIDER, PROVIDER_DEFAULT_BASEURL } = await import('./llm-settings');
   const settings = await readLlmSettings();
   const provider = settings?.provider ?? DEFAULT_PROVIDER;
   const defaultModel =
@@ -45,15 +45,15 @@ async function resolveConfig(opts: { model?: string }): Promise<ResolvedLlmConfi
     const apiKey = settings?.apiKey ?? getEnv().ANTHROPIC_API_KEY;
     return { provider, model, apiKey };
   }
-  // openai-compatible: apiKey 必填。空值直接抛 clear error，避开 3 次 retry loop (~7s)。
+  // openai-compatible / minimax: apiKey 必填。空值直接抛 clear error，避开 3 次 retry loop (~7s)。
   const apiKey = settings?.apiKey ?? '';
   if (apiKey.length === 0) {
     throw new Error(
-      'missing apiKey for openai-compatible provider — paste an API key via /settings',
+      `missing apiKey for ${provider} provider — paste an API key via /settings`,
     );
   }
-  // baseURL 留空 → SDK 默认 https://api.openai.com/v1。
-  const baseURL = settings?.baseURL ?? undefined;
+  // baseURL 优先级：用户显式填 > provider 默认 (minimax 有官方默认 endpoint)
+  const baseURL = settings?.baseURL ?? PROVIDER_DEFAULT_BASEURL[provider] ?? undefined;
   return { provider, model, apiKey, baseURL };
 }
 
@@ -67,15 +67,17 @@ async function resolveConfig(opts: { model?: string }): Promise<ResolvedLlmConfi
  */
 export type LlmClient =
   | { provider: 'anthropic'; client: Anthropic }
-  | { provider: 'openai-compatible'; client: OpenAI };
+  | { provider: 'openai-compatible'; client: OpenAI }
+  | { provider: 'minimax'; client: OpenAI };
 
 export async function getLlmClient(opts: { model?: string } = {}): Promise<LlmClient> {
   const cfg = await resolveConfig(opts);
   if (cfg.provider === 'anthropic') {
     return { provider: 'anthropic', client: new Anthropic({ apiKey: cfg.apiKey }) };
   }
+  // minimax 走 OpenAI SDK 兼容 (与 openai-compatible 同 SDK 不同 provider label)
   return {
-    provider: 'openai-compatible',
+    provider: cfg.provider,
     client: new OpenAI({ apiKey: cfg.apiKey, baseURL: cfg.baseURL }),
   };
 }

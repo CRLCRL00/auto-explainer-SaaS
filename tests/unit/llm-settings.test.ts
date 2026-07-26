@@ -246,3 +246,43 @@ describe('writeLlmSettings({ merge: true }) — P1-2 fix', () => {
     expect(result).toEqual({ model: 'fresh', apiKey: '<TEST_KEY>' });
   });
 });
+
+describe('provider minimax (MiniMax-M3 OpenAI-compatible)', () => {
+  it('round-trips provider=minimax with baseURL', async () => {
+    await writeLlmSettings(
+      {
+        provider: 'minimax',
+        model: 'MiniMax-M3',
+        baseURL: 'https://api.minimaxi.com/v1',
+        apiKey: '<TEST_KEY>',
+      },
+      filePath,
+    );
+    const result = await readLlmSettings(filePath);
+    expect(result).toEqual({
+      provider: 'minimax',
+      model: 'MiniMax-M3',
+      baseURL: 'https://api.minimaxi.com/v1',
+      apiKey: '<TEST_KEY>',
+    });
+  });
+
+  it('PROVIDER_DEFAULT_BASEURL has minimax → https://api.minimaxi.com/v1', async () => {
+    const { PROVIDER_DEFAULT_BASEURL } = await import('@/lib/llm-settings');
+    expect(PROVIDER_DEFAULT_BASEURL.minimax).toBe('https://api.minimaxi.com/v1');
+  });
+
+  it('redactSettings returns provider:minimax with baseURL not null', () => {
+    const redacted = redactSettings({
+      provider: 'minimax',
+      model: 'MiniMax-M3',
+      baseURL: 'https://api.minimaxi.com/v1',
+      apiKey: '<TEST_KEY>',
+    });
+    expect(redacted.provider).toBe('minimax');
+    expect(redacted.model).toBe('MiniMax-M3');
+    expect(redacted.baseURL).toBe('https://api.minimaxi.com/v1');
+    expect(redacted.configured).toBe(true);
+    expect(Object.values(redacted)).not.toContain('<TEST_KEY>');
+  });
+});

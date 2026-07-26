@@ -131,6 +131,38 @@ describe('getLlmClient() provider dispatch', () => {
     expect(r1.provider).toBe('openai-compatible');
     expect(r2.provider).toBe('anthropic'); // fallback
   });
+
+  it('returns minimax client when settings.provider = minimax (uses OpenAI SDK with minimax baseURL default)', async () => {
+    mockedRead.mockResolvedValueOnce({
+      provider: 'minimax',
+      model: 'MiniMax-M3',
+      // 注意：baseURL 留空 → lib/llm.ts 应填入 PROVIDER_DEFAULT_BASEURL.minimax
+      apiKey: 'sk-test-minimax-1234567890',
+    });
+    const result = await getLlmClient();
+    expect(result.provider).toBe('minimax');
+    expect(result.client).toBeDefined();
+  });
+
+  it('minimax with explicit baseURL override (use case: 自部署/区域 endpoint)', async () => {
+    mockedRead.mockResolvedValueOnce({
+      provider: 'minimax',
+      model: 'MiniMax-M3',
+      baseURL: 'https://custom.example.com/v1',
+      apiKey: 'sk-test-minimax-1234567890',
+    });
+    const result = await getLlmClient();
+    expect(result.provider).toBe('minimax');
+  });
+
+  it('minimax with empty apiKey → fast-fail error', async () => {
+    mockedRead.mockResolvedValueOnce({
+      provider: 'minimax',
+      model: 'MiniMax-M3',
+      // 无 apiKey → fast-fail
+    });
+    await expect(getLlmClient()).rejects.toThrow(/missing apiKey for minimax/);
+  });
 });
 
 describe('fast-fail on missing apiKey for openai-compatible (P1-1 fix)', () => {

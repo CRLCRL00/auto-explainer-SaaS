@@ -28,6 +28,7 @@ type Result =
 const PROVIDER_OPTIONS: { value: Provider; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic (Claude 系列)' },
   { value: 'openai-compatible', label: 'OpenAI-compatible (DeepSeek / 通义 / Ollama ...)' },
+  { value: 'minimax', label: 'MiniMax-M3 (M3 兼容, 默认 https://api.minimaxi.com/v1)' },
 ];
 
 const CLAUDE_PRESETS: { value: string; label: string }[] = [
@@ -36,8 +37,14 @@ const CLAUDE_PRESETS: { value: string; label: string }[] = [
   { value: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku (最快/最便宜)' },
 ];
 
+const MINIMAX_PRESETS: { value: string; label: string }[] = [
+  { value: 'MiniMax-M3', label: 'MiniMax-M3 (推荐, 200K context)' },
+  { value: 'MiniMax-M2.7-highspeed', label: 'MiniMax-M2.7 highspeed (便宜)' },
+];
+
 const DEFAULT_PROVIDER: Provider = 'anthropic';
 const DEFAULT_MODEL = 'claude-sonnet-4-5';
+const MINIMAX_DEFAULT_MODEL = 'MiniMax-M3';
 
 function authHeader(): string {
   return `Basic ${btoa(`${process.env.NEXT_PUBLIC_BASIC_AUTH_USER ?? 'admin'}:${process.env.NEXT_PUBLIC_BASIC_AUTH_PASS ?? 'changeme'}`)}`;
@@ -157,7 +164,8 @@ export default function SettingsPage() {
     }
   }
 
-  const showBaseURL = provider === 'openai-compatible';
+  // openai-compatible + minimax 都用 baseURL（minimax 有 default 但 UI 仍允许覆盖）
+  const showBaseURL = provider === 'openai-compatible' || provider === 'minimax';
 
   return (
     <main>
@@ -244,10 +252,36 @@ export default function SettingsPage() {
           ))}
         </div>
 
+        {/* MiniMax-M3 快捷：点一下填到 model 框 + 切到 minimax provider */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+          <span style={{ color: 'var(--muted)', fontSize: '0.85em', alignSelf: 'center' }}>
+            MiniMax-M3 快捷：
+          </span>
+          {MINIMAX_PRESETS.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              onClick={() => {
+                setProvider('minimax');
+                setModel(p.value);
+              }}
+              disabled={busy}
+              style={{
+                background: '#21262d',
+                color: 'var(--fg)',
+                fontSize: '0.85em',
+                padding: '4px 10px',
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
         {showBaseURL && (
           <>
             <label htmlFor="baseURL">
-              Base URL（OpenAI-compatible endpoint，留空走官方 API）
+              Base URL（{provider === 'minimax' ? '默认 https://api.minimaxi.com/v1 (可改)' : 'OpenAI-compatible endpoint，留空走官方 API'}）
             </label>
             <input
               id="baseURL"

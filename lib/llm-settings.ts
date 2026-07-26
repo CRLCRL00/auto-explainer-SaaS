@@ -7,9 +7,16 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-export type LlmProvider = 'anthropic' | 'openai-compatible';
+export type LlmProvider = 'anthropic' | 'openai-compatible' | 'minimax';
 
 export const DEFAULT_PROVIDER: LlmProvider = 'anthropic';
+
+// 各 provider 默认 endpoint（baseURL 留空时 fallback）
+export const PROVIDER_DEFAULT_BASEURL: Record<LlmProvider, string | null> = {
+  'anthropic': null, // SDK 内置 https://api.anthropic.com
+  'openai-compatible': 'https://api.openai.com/v1',
+  'minimax': 'https://api.minimaxi.com/v1', // MiniMax-M3 docs 确认的 OpenAI 兼容 endpoint
+};
 
 export interface LlmSettings {
   provider?: LlmProvider;
@@ -28,7 +35,7 @@ export interface RedactedLlmSettings {
 export const DEFAULT_SETTINGS_PATH = path.resolve(process.cwd(), 'storage', '.llm-settings.json');
 
 function isProvider(v: unknown): v is LlmProvider {
-  return v === 'anthropic' || v === 'openai-compatible';
+  return v === 'anthropic' || v === 'openai-compatible' || v === 'minimax';
 }
 
 export async function readLlmSettings(filePath: string = DEFAULT_SETTINGS_PATH): Promise<LlmSettings | null> {
