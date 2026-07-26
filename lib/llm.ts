@@ -1,13 +1,23 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getEnv } from './env';
 
-let client: Anthropic | null = null;
+const DEFAULT_MODEL = 'claude-sonnet-4-5';
 
-export function getAnthropic() {
-  if (client) return client;
-  const env = getEnv();
-  client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  return client;
+/**
+ * 构造一个 Anthropic SDK 客户端。
+ *
+ * apiKey 优先级（每次调用现读，不缓存——让 /settings 页面的实时改动立即生效）：
+ *   1. `readLlmSettings()` 返回 `{ apiKey }` → 用 settings.apiKey
+ *   2. 否则 fall back 到 `getEnv().ANTHROPIC_API_KEY`
+ *
+ * 注意：故意不顶层 import `@/lib/llm-settings`；与 `logger` 一样惰性加载，
+ * 避免仅为 parseAssistantJson 静态导入本模块时触发不必要的副作用（设置文件 I/O）。
+ */
+export async function getAnthropic(): Promise<Anthropic> {
+  const { readLlmSettings } = await import('./llm-settings');
+  const settings = await readLlmSettings();
+  const apiKey = settings?.apiKey ?? getEnv().ANTHROPIC_API_KEY;
+  return new Anthropic({ apiKey });
 }
 
 export interface LlmMessage {
@@ -21,12 +31,16 @@ export async function callClaude(opts: {
   maxTokens?: number;
   model?: string;
 }): Promise<string> {
-  const client = getAnthropic();
+  const client = await getAnthropic();
   // 惰性加载 logger：避免仅为 parseAssistantJson 导入本模块时
   // 触发 logger.ts 顶层的 getEnv() 校验（无 env 的场景如单测会抛错）。
   const { logger } = await import('./logger');
+  // 模型名优先级：opts.model ?? settings.model ?? DEFAULT_MODEL
+  // 与 apiKey 路径独立：settings 只有 model 没有 apiKey 时，apiKey 仍走 env。
+  const { readLlmSettings } = await import('./llm-settings');
+  const settings = await readLlmSettings();
   const params: any = {
-    model: opts.model ?? 'claude-sonnet-4-5',
+    model: opts.model ?? settings?.model ?? DEFAULT_MODEL,
     max_tokens: opts.maxTokens ?? 4096,
     messages: opts.messages,
   };
