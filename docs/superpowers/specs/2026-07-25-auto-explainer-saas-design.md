@@ -152,7 +152,7 @@ User submit (text/URL/Doc)
 | | `JobIntake` | 接收 topic/URL/doc，落库 | text/URL/file → `jobs` 行 | Postgres + BullMQ | quota 超限 / 文件超限 |
 | | `InputNormalizer` | URL/Doc 规整为 Markdown | URL/Doc → MD | cheerio / pdf-parse | 来源 403 / PDF 加密 |
 | **规划** | `OutlinePlanner` | LLM 生成 7 段 outline | MD → plan.json | Claude API | API 配额 / JSON 不合规 |
-| | `ScriptWriter` | 每段 voiceover + 视觉提示 | plan.json → script.md | Claude API | 输出超 4096 字符 |
+| | `ScriptWriter` | 每段 voiceover + 视觉提示 | plan.json → script.json | Claude API | 输出超 4096 字符 |
 | | `QualityGate-v1` | 撞墙拐点智能判定（详见 §4） | plan + script → ok/regen | Claude API | 判定不一致 |
 | **构建** | `TemplateSelector` | 按受众/时长/风格选模板 | plan → template_id | 通用模式 §27 | 无匹配 |
 | | `HtmlRenderer` | 模板注入 → 单文件 HTML | plan + template → html | 12 个 template 文件 | ID 缺失 / 字符溢出 |
@@ -606,7 +606,7 @@ MFA: v2
 > § Polyfill Pattern for Node Tests: 全局 polyfill localStorage / fetch，避免依赖真实外部。
 
 应用到本项目：
-- LLM fixture：5 个 golden topic 对应 canned plan.json / script.md
+- LLM fixture：5 个 golden topic 对应 canned plan.json / script.json
 - TTS fixture：本地 eSpeak-ng 或预录 mp3（断网测）
 - MinIO fixture：本地 fs 模拟（docker-compose 起 minio 容器）
 - Browser fixture：Docker image 锁 Chromium 版本

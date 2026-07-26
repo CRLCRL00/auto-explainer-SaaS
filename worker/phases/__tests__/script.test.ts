@@ -296,13 +296,29 @@ describe('ScriptSchema', () => {
     expect(r.success).toBe(false);
   });
 
-  it('beats: [] 在 script 阶段被拒 (min(1))', async () => {
-    await writePlan(VALID_PLAN);
-    mockedCallLlm.mockResolvedValueOnce(JSON.stringify({
-      title: 'x', topic: 't', beats: [],
-    }));
+  it('beats 数量 ≠ 5 → length(5) 严格拒', () => {
+    const four = { ...VALID_SCRIPT, beats: VALID_SCRIPT.beats.slice(0, 4) };
+    const six = { ...VALID_SCRIPT, beats: [...VALID_SCRIPT.beats, { ...VALID_SCRIPT.beats[0], id: 'b6' }] };
+    expect(ScriptSchema.safeParse(four).success).toBe(false);
+    expect(ScriptSchema.safeParse(six).success).toBe(false);
+  });
 
-    await expect(phaseScript(FIXED_JOB_ID)).rejects.toThrow(/script failed structural schema/);
+  it('narration 超过 60 字 → max(60) 拒', () => {
+    const long = '啊'.repeat(61);
+    const r = ScriptSchema.safeParse({
+      ...VALID_SCRIPT,
+      beats: VALID_SCRIPT.beats.map((b, i) => (i === 0 ? { ...b, narration: long } : b)),
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('caption 超过 40 字 → max(40) 拒', () => {
+    const long = '啊'.repeat(41);
+    const r = ScriptSchema.safeParse({
+      ...VALID_SCRIPT,
+      beats: VALID_SCRIPT.beats.map((b, i) => (i === 0 ? { ...b, caption: long } : b)),
+    });
+    expect(r.success).toBe(false);
   });
 
   it('plan beats 的 flat 字段都被 ScriptBeatSchema 继承 (id/title/summary/duration_sec/visual_hint)', async () => {
@@ -339,5 +355,47 @@ describe('P1 polish: script phaseScript 落盘走 atomic write', () => {
     // 实际文件落盘
     const written = JSON.parse(await fs.readFile(scriptPath, 'utf8'));
     expect(written.title).toBe(VALID_SCRIPT.title);
+  });
+});
+
+describe('P0-2 fix: script 严格沿用 plan 字段 (detectPlanDrift)', () => {
+  it('LLM 改了 title → 抛错 script_plan_drift', async () => {
+    await writePlan(VALID_PLAN);
+    const drifted = {
+      ...VALID_SCRIPT,
+      title: 'LLM 私自改的标题', // 与 VALID_PLAN.title 不同
+    };
+    mockedCallLlm.mockResolvedValueOnce(JSON.stringify(drifted));
+
+    await expect(phaseScript(FIXED_JOB_ID)).rejects.toThrow(/drifted from plan.*title drift/);
+  });
+
+  it('LLM 改了 beat[0].duration_sec → 抛错', async () => {
+    await writePlan(VALID_PLAN);
+    const drifted = {
+      ...VALID_SCRIPT,
+      beats: VALID_SCRIPT.beats.map((b, i) => (i === 0 ? { ...b, duration_sec: 999 } : b)),
+    };
+    mockedCallLlm.mockResolvedValueOnce(JSON.stringify(drifted));
+
+    await expect(phaseScript(FIXED_JOB_ID)).rejects.toThrow(/beat\[0\]\.duration_sec drift/);
+  });
+
+  it('LLM 改了 beat[2].visual_hint → 抛错', async () => {
+    await writePlan(VALID_PLAN);
+    const drifted = {
+      ...VALID_SCRIPT,
+      beats: VALID_SCRIPT.beats.map((b, i) => (i === 2 ? { ...b, visual_hint: 'LLM 私自改的视觉' } : b)),
+    };
+    mockedCallLlm.mockResolvedValueOnce(JSON.stringify(drifted));
+
+    await expect(phaseScript(FIXED_JOB_ID)).rejects.toThrow(/beat\[2\]\.visual_hint drift/);
+  });
+
+  it('LLM 输出严格沿用 plan → 通过', async () => {
+    await writePlan(VALID_PLAN);
+    mockedCallLlm.mockResolvedValueOnce(JSON.stringify(VALID_SCRIPT));
+
+    await expect(phaseScript(FIXED_JOB_ID)).resolves.toBeUndefined();
   });
 });

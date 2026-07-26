@@ -14,7 +14,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { getDb } from '@/lib/db';
-import { jobEvents, jobs } from '@/lib/schema';
+import { jobs } from '@/lib/schema';
+import { safeRecordEvent } from '@/lib/job-events';
 import { callLlm, parseAssistantJson } from '@/lib/llm';
 import { logger } from '@/lib/logger';
 
@@ -164,20 +165,4 @@ export async function phaseOutline(jobId: string): Promise<void> {
   );
 }
 
-// 事件落库失败不阻塞主线（best-effort）
-async function safeRecordEvent(
-  jobId: string,
-  phase: string,
-  event: string,
-  payload: unknown,
-): Promise<void> {
-  try {
-    const db = getDb();
-    await db.insert(jobEvents).values({ jobId, phase, event, payload });
-  } catch (err) {
-    logger.warn(
-      { jobId, phase, event, err: err instanceof Error ? err.message : String(err) },
-      'safeRecordEvent failed (non-fatal)',
-    );
-  }
-}
+// safeRecordEvent 已抽到 @/lib/job-events（共用 outline.ts + script.ts + qg-plan.ts）

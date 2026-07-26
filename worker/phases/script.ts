@@ -18,6 +18,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { callLlm, parseAssistantJson } from '@/lib/llm';
 import { logger } from '@/lib/logger';
+import { safeRecordEvent } from '@/lib/job-events';
 import { BeatSchema, PlanSchema, planPathFor } from './outline';
 
 // ─────────────────────────────────────────────────────────────────
@@ -33,18 +34,23 @@ export function scriptPathFor(jobId: string): string {
 // Schemas
 // ─────────────────────────────────────────────────────────────────
 
-/** ScriptJson 一行 beat：plan beat + 三个文本字段（narration / caption / tts_text）。 */
+/** ScriptJson 一行 beat：plan beat + 三个文本字段（narration / caption / tts_text）。
+ *
+ * 长度上限参考 6s/beat × 250字/分钟 TTS 字速 ≈ 25 字，prompt 里 ≤30/≤20 是宽松软约束。
+ * schema 用 max 兜底防止 LLM 严重超标（按 JS code unit 计数；中文字符 = 1 unit）。
+ */
 export const ScriptBeatSchema = BeatSchema.extend({
-  narration: z.string().min(1),
-  caption: z.string().min(1),
-  tts_text: z.string().min(1),
+  narration: z.string().min(1).max(60),
+  caption: z.string().min(1).max(40),
+  tts_text: z.string().min(1).max(60),
 });
 export type ScriptBeat = z.infer<typeof ScriptBeatSchema>;
 
 export const ScriptSchema = z.object({
   title: z.string().min(1),
   topic: z.string().min(1),
-  beats: z.array(ScriptBeatSchema).min(1),
+  // .length(5) 严格保证与 plan 一致；不靠 prompt 软约束
+  beats: z.array(ScriptBeatSchema).length(5),
 });
 export type ScriptJson = z.infer<typeof ScriptSchema>;
 
@@ -212,7 +218,16 @@ export async function phaseScript(jobId: string): Promise<void> {
 
   const scriptJson = scriptCheck.data;
 
-  // 3. 落盘 script.json（atomic write：tmp + rename）
+  // 3. 验证 LLM 输出严格沿用 plan 字段（QG-plan 校验过的内容不能再被绕开）
+  //    title / topic 必须一致；每个 beat 的 id / title / summary / duration_sec / visual_hint 必须逐项相等。
+  const drift = detectPlanDrift(plan, scriptJson);
+  if (drift) {
+    logger.warn({ jobId, drift }, 'script output drifted from plan');
+    await safeRecordEvent(jobId, 'script_ready', 'script_plan_drift', { drift });
+    throw new Error(`script output drifted from plan: ${drift}`);
+  }
+
+  // 4. 落盘 script.json（atomic write：tmp + rename）
   const scriptPath = scriptPathFor(jobId);
   await fs.mkdir(path.dirname(scriptPath), { recursive: true });
   const tmpPath = `${scriptPath}.tmp`;
@@ -231,22 +246,26 @@ export async function phaseScript(jobId: string): Promise<void> {
   );
 }
 
-// 事件落库失败不阻塞主线（best-effort）— 与 outline.ts 同款。
-async function safeRecordEvent(
-  jobId: string,
-  phase: string,
-  event: string,
-  payload: unknown,
-): Promise<void> {
-  try {
-    const { getDb } = await import('@/lib/db');
-    const { jobEvents } = await import('@/lib/schema');
-    const db = getDb();
-    await db.insert(jobEvents).values({ jobId, phase, event, payload });
-  } catch (err) {
-    logger.warn(
-      { jobId, phase, event, err: err instanceof Error ? err.message : String(err) },
-      'safeRecordEvent failed (non-fatal)',
-    );
+/**
+ * 返回 null = 无 drift；返回 string = 不一致原因（用于 safeRecordEvent payload + throw message）。
+ */
+function detectPlanDrift(
+  plan: { title: string; topic: string; beats: ReadonlyArray<{ id: string; title: string; summary: string; duration_sec: number; visual_hint: string }> },
+  script: { title: string; topic: string; beats: ReadonlyArray<{ id: string; title: string; summary: string; duration_sec: number; visual_hint: string }> },
+): string | null {
+  if (plan.title !== script.title) return `title drift: plan="${plan.title}" script="${script.title}"`;
+  if (plan.topic !== script.topic) return `topic drift: plan="${plan.topic}" script="${script.topic}"`;
+  if (plan.beats.length !== script.beats.length) {
+    return `beats length drift: plan=${plan.beats.length} script=${script.beats.length}`;
   }
+  for (let i = 0; i < plan.beats.length; i++) {
+    const p = plan.beats[i];
+    const s = script.beats[i];
+    if (p.id !== s.id) return `beat[${i}].id drift: plan="${p.id}" script="${s.id}"`;
+    if (p.title !== s.title) return `beat[${i}].title drift`;
+    if (p.summary !== s.summary) return `beat[${i}].summary drift`;
+    if (p.duration_sec !== s.duration_sec) return `beat[${i}].duration_sec drift: plan=${p.duration_sec} script=${s.duration_sec}`;
+    if (p.visual_hint !== s.visual_hint) return `beat[${i}].visual_hint drift`;
+  }
+  return null;
 }

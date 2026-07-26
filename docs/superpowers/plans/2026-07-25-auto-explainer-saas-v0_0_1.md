@@ -1724,11 +1724,11 @@ export async function phaseScript(jobId: string) {
     }
   }
 
-  const scriptPath = path.join(jobDir, 'script.md');
+  const scriptPath = path.join(jobDir, 'script.md'); // v0.0.2 patch: 改成 script.json
   const md = scriptLines
     .map((l) => `## ${l.beat_id} · ${l.name}\n\n${l.text}\n`)
     .join('\n');
-  await fs.writeFile(scriptPath, md, 'utf8');
+  await fs.writeFile(scriptPath, md, 'utf8'); // v0.0.2 patch: 写 JSON 而非 MD
 
   logger.info({ jobId, beats: scriptLines.length }, 'script done');
 }
@@ -1738,8 +1738,8 @@ export async function phaseScript(jobId: string) {
 
 ```bash
 # 起 worker + 提交 job，等 30s
-ls storage/jobs/*/script.md
-cat storage/jobs/*/script.md
+ls storage/jobs/*/script.json # v0.0.2 patch: script.md → script.json
+cat storage/jobs/*/script.json
 ```
 
 Expected: 5 个 beat 的口播稿段落，每段 ≤ 60 字。
@@ -1905,10 +1905,10 @@ export async function phaseHtml(jobId: string) {
   <p class="anim d3">{{BEAT_${i}_TEXT}}</p>
 </div>`).join('\n');
 
-  // 替换 BEAT 标题 + 文本（来自 plan.visual_plan + script.md）
-  const scriptPath = path.join(jobDir, 'script.md');
-  const scriptRaw = await fs.readFile(scriptPath, 'utf8');
-  const scriptBeats = parseScriptMd(scriptRaw);
+  // 替换 BEAT 标题 + 文本（来自 plan.beats[i].visual_hint + script.json 落盘）
+  // v0.0.2 patch: flat schema，丢弃 visual_plan 数组与 parseScriptMd MD 解析
+  const scriptPath = path.join(jobDir, 'script.json');
+  const script = JSON.parse(await fs.readFile(scriptPath, 'utf8')) as { beats: ReadonlyArray<{ narration?: string; summary: string }> };
 
   for (let i = 0; i < plan.beats.length; i++) {
     const beat = plan.beats[i];
@@ -2692,6 +2692,8 @@ git log --oneline | head -30
 **3. Type consistency**:
 - `jobs.phase` enum ↔ Task 11 phase 字符串：一致（'planning_done' / 'html_ready' / 'probing' / 'recording_done' / 'done'）
 - `PlanSchema` 在 Task 14 定义；Task 17 消费 `plan.beats` 和 `plan.visual_plan` — 一致
+
+> **v0.0.2 patch note**: Task 14/15/17 实际落地走 flat schema `{ id, title, summary, duration_sec, visual_hint }`，丢弃 `visual_plan` 独立数组与 `name/purpose/duration_ms` 旧字段名。改动原因：JSON 三文本字段 (narration/caption/tts_text) 与 ScriptWriter 耦合时 flat 更直接，consumer 不用查两个数组。详见 commit `35414ae` / `a1b2b2c` / spec-deviation follow-up 决策记录。
 - `frameIdx` 格式 `f_%05d.png` 在 Task 19 写出，Task 21 `framesPattern: path.join(framesDir, 'f_%05d.png')` 消费 — 一致
 - `realFps` 在 Task 20 计算，Task 21 传 `inputFps: realFps` — 一致
 - `jobArtifacts` 表在 Task 3 / 17 / 21 三处写入 — 一致
