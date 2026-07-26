@@ -1,0 +1,1 @@
+ALTER TYPE "public"."phase" ADD VALUE 'script_ready' BEFORE 'building';

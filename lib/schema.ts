@@ -1,8 +1,10 @@
 import { pgTable, uuid, text, timestamp, integer, jsonb, varchar, pgEnum, index } from 'drizzle-orm/pg-core';
 
 // 阶段枚举（spec §3.1）
+// v0.0.1 新增 'script_ready'：位于 'planning_qg' 之后 / 'building' 之前，
+// 给 ScriptWriter 用（Task 15）。
 export const phaseEnum = pgEnum('phase', [
-  'pending', 'planning', 'planning_done', 'planning_qg', 'building', 'html_ready',
+  'pending', 'planning', 'planning_done', 'planning_qg', 'script_ready', 'building', 'html_ready',
   'probing', 'recording', 'recording_done', 'encoding', 'tts_caption',
   'ppt_retro', 'finalize', 'done', 'failed', 'dead',
 ]);
