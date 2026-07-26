@@ -15,6 +15,13 @@
       "when": 1784977764177,
       "tag": "0001_smiling_ego",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785052462164,
+      "tag": "0002_striped_whistler",
+      "breakpoints": true
     }
   ]
 }

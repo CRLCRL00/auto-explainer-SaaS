@@ -5,6 +5,7 @@ import { recordEvent } from '@/lib/job-events';
 import { logger } from '@/lib/logger';
 import { phaseOutline } from './phases/outline';
 import { phaseScript } from './phases/script';
+import { phaseQgPlan } from './phases/qg-plan';
 import { phaseHtml } from './phases/html';
 import { phaseProbe } from './phases/probe';
 import { phaseRecord } from './phases/record';
@@ -19,10 +20,11 @@ interface PipelineStep {
 
 // v0.0.1 简化：所有阶段顺序跑，单 attempt，失败直接 failed。
 // v0.5 起加 retry + 撞墙拐点（spec §4）。
-// 注意：phaseScript 已 import 但未插入 PHASE_ORDER —— 留给 v0.5 在 outline 后插入。
+// phaseScript 已 import 但未插入 PHASE_ORDER —— 留给 v0.5 在 outline 后插入 (Task 15)。
 const PHASE_ORDER: PipelineStep[] = [
   { name: 'planning_done',  run: phaseOutline },     // 完成 planning，等价于 planning_done
-  { name: 'html_ready',     run: phaseHtml },       // render + selector
+  { name: 'planning_qg',    run: phaseQgPlan },      // 5-beat / duration 上限 / 必填字段 (spec §4.2)
+  { name: 'html_ready',     run: phaseHtml },        // render + selector
   { name: 'probing',        run: phaseProbe },
   { name: 'recording_done', run: phaseRecord },
   { name: 'done',           run: phaseEncode },

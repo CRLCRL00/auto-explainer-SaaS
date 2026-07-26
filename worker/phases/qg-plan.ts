@@ -10,12 +10,11 @@
 // v0.0.1 简化：不做语义质量判断（标题反常识、钩子冲击力等留 v0.5）。
 
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { jobEvents, jobs } from '@/lib/schema';
 import { logger } from '@/lib/logger';
-import { BeatSchema, PlanSchema } from './outline';
+import { BeatSchema, PlanSchema, planPathFor } from './outline';
 
 /** QG-plan 阈值：beats 总和上限（秒）。worker 单帧 30s，5 beats 30s/beat 上限是 150s，但当前模板 beat5-30s 是 5×6s=30s；给 60s 留后续 60s 模板的空间。 */
 export const MAX_TOTAL_DURATION_SEC = 60;
@@ -35,7 +34,7 @@ export class QgPlanError extends Error {
 export async function phaseQgPlan(jobId: string): Promise<void> {
   const db = getDb();
 
-  const planPath = path.join(process.cwd(), 'storage', 'jobs', jobId, 'plan.json');
+  const planPath = planPathFor(jobId);
   const raw = await fs.readFile(planPath, 'utf8');
   let parsed: unknown;
   try {
@@ -110,7 +109,7 @@ export async function phaseQgPlan(jobId: string): Promise<void> {
   try {
     await db.insert(jobEvents).values({
       jobId,
-      phase: 'planning_done',
+      phase: 'planning_qg',
       event: 'qg_plan_passed',
       payload: { total, beatCount: plan.beats.length },
     });

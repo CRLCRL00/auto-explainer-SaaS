@@ -2,7 +2,7 @@ import { pgTable, uuid, text, timestamp, integer, jsonb, varchar, pgEnum, index 
 
 // 阶段枚举（spec §3.1）
 export const phaseEnum = pgEnum('phase', [
-  'pending', 'planning', 'planning_done', 'building', 'html_ready',
+  'pending', 'planning', 'planning_done', 'planning_qg', 'building', 'html_ready',
   'probing', 'recording', 'recording_done', 'encoding', 'tts_caption',
   'ppt_retro', 'finalize', 'done', 'failed', 'dead',
 ]);

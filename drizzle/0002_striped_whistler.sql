@@ -1,0 +1,1 @@
+ALTER TYPE "public"."phase" ADD VALUE 'planning_qg' BEFORE 'building';

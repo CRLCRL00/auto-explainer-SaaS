@@ -18,6 +18,12 @@ import { jobEvents, jobs } from '@/lib/schema';
 import { callLlm, parseAssistantJson } from '@/lib/llm';
 import { logger } from '@/lib/logger';
 
+// planPathFor 必须每次 evaluate（不能用 module-level STORAGE_ROOT 常量），
+// 否则测试 spy process.cwd() 时 module-load 时 STORAGE_ROOT 已固化，spy 失效。
+export function planPathFor(jobId: string): string {
+  return path.join(process.cwd(), 'storage', 'jobs', jobId, 'plan.json');
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Schemas（导出，便于 QG-plan 和测试复用）
 // ─────────────────────────────────────────────────────────────────
@@ -26,7 +32,8 @@ export const BeatSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   summary: z.string().min(1),
-  duration_sec: z.number().int().nonnegative(),
+  // positive() 与 QG-plan 一致：schema 直接拒 0 / 负数，少一处隐式约定
+  duration_sec: z.number().int().positive(),
   visual_hint: z.string().min(1),
 });
 export type Beat = z.infer<typeof BeatSchema>;
@@ -34,7 +41,8 @@ export type Beat = z.infer<typeof BeatSchema>;
 export const PlanSchema = z.object({
   title: z.string().min(1),
   topic: z.string().min(1),
-  beats: z.array(BeatSchema),
+  // .min(1) 让 outline 阶段拒空数组，避免 outline → 落空 plan.json → QG-plan 才报空
+  beats: z.array(BeatSchema).min(1),
 });
 export type Plan = z.infer<typeof PlanSchema>;
 
@@ -137,15 +145,17 @@ export async function phaseOutline(jobId: string): Promise<void> {
   }
 
   // 落盘 + 记录事件
-  const planPath = path.join(process.cwd(), 'storage', 'jobs', jobId, 'plan.json');
+  // Atomic write: tmp + rename，crash mid-write 不会让 plan.json 半截 → QG-plan 不卡在 plan_json_invalid
+  const planPath = planPathFor(jobId);
   await fs.mkdir(path.dirname(planPath), { recursive: true });
-  await fs.writeFile(planPath, JSON.stringify(structural.data, null, 2), 'utf8');
+  const tmpPath = `${planPath}.tmp`;
+  await fs.writeFile(tmpPath, JSON.stringify(structural.data, null, 2), 'utf8');
+  await fs.rename(tmpPath, planPath);
 
-  await db.insert(jobEvents).values({
-    jobId,
-    phase: 'planning_done',
-    event: 'outline_persisted',
-    payload: { title: structural.data.title, beatCount: structural.data.beats.length, planPath },
+  await safeRecordEvent(jobId, 'planning_done', 'outline_persisted', {
+    title: structural.data.title,
+    beatCount: structural.data.beats.length,
+    planPath,
   });
 
   logger.info(

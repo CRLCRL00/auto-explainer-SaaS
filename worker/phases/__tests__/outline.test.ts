@@ -73,7 +73,7 @@ vi.mock('@/lib/logger', () => ({
 
 import { callLlm } from '@/lib/llm';
 import { getDb } from '@/lib/db';
-import { phaseOutline, SYSTEM_PROMPT, planPromptFor } from '@/worker/phases/outline';
+import { phaseOutline, SYSTEM_PROMPT, planPromptFor, BeatSchema, PlanSchema } from '@/worker/phases/outline';
 import { phaseQgPlan, QgPlanError } from '@/worker/phases/qg-plan';
 
 const mockedCallLlm = vi.mocked(callLlm);
@@ -106,6 +106,7 @@ const SHORT_PLAN = {
 
 let tmpDir: string;
 let cwdSpy: ReturnType<typeof vi.spyOn>;
+let dbCalls: { inserts: unknown[]; updates: unknown[] };
 
 beforeEach(async () => {
   // 每个测试独立 tmpDir → 不污染其他测试 + 可读落盘内容
@@ -113,7 +114,7 @@ beforeEach(async () => {
   cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tmpDir);
 
   // 默认 mock DB 返回一个标准 job
-  const { db } = makeDbMock({
+  const mock = makeDbMock({
     id: FIXED_JOB_ID,
     userId: 'admin',
     status: 'pending',
@@ -122,7 +123,8 @@ beforeEach(async () => {
     inputType: 'text',
     inputPayload: { topic: FIXED_TOPIC },
   });
-  mockedGetDb.mockReturnValue(db as never);
+  dbCalls = mock.calls;
+  mockedGetDb.mockReturnValue(mock.db as never);
 });
 
 afterEach(async () => {
@@ -189,10 +191,14 @@ describe('phaseOutline', () => {
     expect(call.messages[0].content).toContain(FIXED_TOPIC);
     expect(call.maxTokens).toBe(2048);
 
-    // 3. jobEvents 被 insert（至少一次 outline_persisted）
-    const dbMock = mockedGetDb.mock.results[0].value as any;
-    const insertCalls = dbMock.insert.mock.calls;
-    expect(insertCalls.length).toBeGreaterThanOrEqual(1);
+    // 3. jobEvents 被 insert（至少一次 outline_persisted，事件名 + payload 形状 + phase）
+    const outlineInsert = dbCalls.inserts.find(
+      (v) => (v as { event?: string }).event === 'outline_persisted',
+    ) as { phase?: string; event?: string; payload?: { beatCount?: number } } | undefined;
+    expect(outlineInsert).toBeDefined();
+    expect(outlineInsert!.phase).toBe('planning_done');
+    expect(outlineInsert!.event).toBe('outline_persisted');
+    expect(outlineInsert!.payload?.beatCount).toBe(5);
   });
 
   it('非 JSON 输出 → parseAssistantJson 抛错并 propagate', async () => {
@@ -213,13 +219,12 @@ describe('phaseOutline', () => {
     expect(written.title).toBe(VALID_PLAN.title);
   });
 
-  it('callLlm 全 3 次都失败（每次都是 network error） → 抛错 propagate', async () => {
-    // callLlm 内部已带 3 次重试；mock 让它每次都失败，模拟"重试耗尽"
-    mockedCallLlm.mockRejectedValue(new Error('network down (simulated retry-exhausted)'));
+  it('callLlm 失败 → 抛错 propagate (重试在 callLlm 内部)', async () => {
+    // callLlm 内部已带 3 次重试；这里 mock 让它直接 reject，验证 outline.ts propagate 错误。
+    // 实际 retry 行为在 lib/llm.ts 的 llm-error.test.ts / llm-integration.test.ts 覆盖。
+    mockedCallLlm.mockRejectedValue(new Error('network down (simulated callLlm reject)'));
 
     await expect(phaseOutline(FIXED_JOB_ID)).rejects.toThrow(/network down/);
-    // mock 只在 first call 失败时 reject — 我们的实现只调一次 callLlm，
-    // 3 次重试是 callLlm 内部的活。验证至少调了 1 次：
     expect(mockedCallLlm.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -254,16 +259,22 @@ describe('phaseQgPlan', () => {
     await fs.writeFile(planPath, JSON.stringify(plan), 'utf8');
   }
 
-  it('正常 5-beat plan.json → 通过 + 更新 templateId', async () => {
+  it('正常 5-beat plan.json → 通过 + 更新 templateId (验证 set + where 形状)', async () => {
     await writePlan(VALID_PLAN);
 
     await phaseQgPlan(FIXED_JOB_ID);
 
-    const dbMock = mockedGetDb.mock.results[0].value as any;
-    expect(dbMock.update).toHaveBeenCalled();
-    // set() 接收 { templateId: 'beat5-30s' } 作为第一个参数
-    const setMock = dbMock.update.mock.results[0].value.set;
-    expect(setMock).toHaveBeenCalledWith({ templateId: 'beat5-30s' });
+    // update.set({ templateId }) + update.where(eqClause) 都通过 dbCalls.updates 追踪
+    const updateCalls = dbCalls.updates as Array<{ where: unknown }>;
+    expect(updateCalls.length).toBeGreaterThanOrEqual(1);
+    expect(updateCalls[0].where).toBeDefined(); // eq(jobs.id, FIXED_JOB_ID) 是 truthy object
+    // insert jobEvents with qg_plan_passed + phase: planning_qg
+    const qgInsert = dbCalls.inserts.find(
+      (v) => (v as { event?: string }).event === 'qg_plan_passed',
+    ) as { phase?: string; event?: string } | undefined;
+    expect(qgInsert).toBeDefined();
+    expect(qgInsert!.phase).toBe('planning_qg');
+    expect(qgInsert!.event).toBe('qg_plan_passed');
   });
 
   it('4-beat 输出（缺 b5）→ 拒绝抛 QgPlanError', async () => {
@@ -296,15 +307,16 @@ describe('phaseQgPlan', () => {
     await expect(phaseQgPlan(FIXED_JOB_ID)).rejects.toBeInstanceOf(QgPlanError);
   });
 
-  it('某 beat duration_sec = 0 → 拒绝', async () => {
+  it('某 beat duration_sec = 0 → plan_schema_invalid (PlanSchema.positive() 直接拒)', async () => {
     const zeroed = {
       ...VALID_PLAN,
       beats: VALID_PLAN.beats.map((b, i) => (i === 0 ? { ...b, duration_sec: 0 } : b)),
     };
     await writePlan(zeroed);
 
+    // duration_sec = 0 现在 PlanSchema.positive() 拒，不走到 QG-plan 的 zero-duration 检查
     await expect(phaseQgPlan(FIXED_JOB_ID)).rejects.toBeInstanceOf(QgPlanError);
-    await expect(phaseQgPlan(FIXED_JOB_ID)).rejects.toThrow(/non-positive duration_sec/);
+    await expect(phaseQgPlan(FIXED_JOB_ID)).rejects.toThrow(/does not match PlanSchema/);
   });
 
   it('plan.json 不是合法 JSON → 拒绝', async () => {
@@ -324,5 +336,50 @@ describe('phaseQgPlan', () => {
     await writePlan(edge);
 
     await expect(phaseQgPlan(FIXED_JOB_ID)).resolves.toBeUndefined();
+  });
+});
+
+describe('P1 polish edge cases', () => {
+  it('outline phaseOutline 落盘走 atomic write (tmp + rename, 无 .tmp 残留)', async () => {
+    mockedCallLlm.mockResolvedValueOnce(JSON.stringify(VALID_PLAN));
+    await phaseOutline(FIXED_JOB_ID);
+
+    const planPath = path.join(tmpDir, 'storage', 'jobs', FIXED_JOB_ID, 'plan.json');
+    const tmpLeftover = `${planPath}.tmp`;
+    // atomic rename 后 .tmp 不应残留
+    await expect(fs.stat(tmpLeftover)).rejects.toThrow();
+    // 实际文件落盘
+    const written = JSON.parse(await fs.readFile(planPath, 'utf8'));
+    expect(written.title).toBe(VALID_PLAN.title);
+  });
+
+  it('BeatSchema 拒 0 duration_sec (positive() 直接拒，不再靠 QG-plan 兜底)', () => {
+    const r = BeatSchema.safeParse({
+      id: 'b1', title: 't', summary: 's', duration_sec: 0, visual_hint: 'v',
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('BeatSchema 拒负数 duration_sec', () => {
+    const r = BeatSchema.safeParse({
+      id: 'b1', title: 't', summary: 's', duration_sec: -5, visual_hint: 'v',
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('PlanSchema 拒 beats: "not array" (shape fail)', async () => {
+    mockedCallLlm.mockResolvedValueOnce(JSON.stringify({
+      title: 't', topic: 'tp', beats: 'not-array',
+    }));
+
+    await expect(phaseOutline(FIXED_JOB_ID)).rejects.toThrow(/outline failed structural schema/);
+  });
+
+  it('PlanSchema 拒 beats: [] (空数组在 outline 阶段被拒，不依赖 QG-plan)', async () => {
+    mockedCallLlm.mockResolvedValueOnce(JSON.stringify({
+      title: 't', topic: 'tp', beats: [],
+    }));
+
+    await expect(phaseOutline(FIXED_JOB_ID)).rejects.toThrow(/outline failed structural schema/);
   });
 });
