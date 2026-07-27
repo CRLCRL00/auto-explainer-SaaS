@@ -29,6 +29,10 @@ export const jobs = pgTable('jobs', {
   startedAt: timestamp('started_at', { withTimezone: true }),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
   lastError: jsonb('last_error'),
+  // v0.5.5: Human-in-Loop (spec §4.4). 撞墙时由 pipeline catch block 设值, ops 或
+  // 用户可视化看到此字段决定下一步 ('再试一次' / '换方向' / '回退 v(N-1)')。
+  // 同 phaseEnum.sql 的 ALTER 模式, schema 先 declare 等下次 migration 跑。
+  humanInLoopReason: varchar('human_in_loop_reason', { length: 64 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

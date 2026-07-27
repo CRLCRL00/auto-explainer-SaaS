@@ -3,12 +3,17 @@ import { getDb } from '@/lib/db';
 import { jobs, phaseEnum } from '@/lib/schema';
 import { recordEvent } from '@/lib/job-events';
 import { logger } from '@/lib/logger';
+import { getEnv } from '@/lib/env';
 import {
   runPhaseWithRetry,
   assertPipelineBudget,
   RetryWallHitError,
 } from '@/lib/pipeline/retry';
 import { checkRender as qgRender, checkFinal as qgFinal } from '@/lib/pipeline/qg-checks';
+import {
+  notifyHumanInLoop,
+  buildHILPayload,
+} from '@/lib/notify';
 import { phaseOutline } from './phases/outline';
 import { phaseScript } from './phases/script';
 import { phaseQgPlan } from './phases/qg-plan';
@@ -104,15 +109,50 @@ export async function runPipeline(jobId: string): Promise<void> {
       const message = errToMessage(err);
       const stack = err instanceof Error ? err.stack : undefined;
       const isWallHit = err instanceof RetryWallHitError;
+      const wallError = isWallHit
+        ? {
+            phaseName: err.phaseName,
+            attempts: err.attempts,
+            lastError: err.lastError,
+          }
+        : null;
       logger.error(
-        { jobId, err: message, stack, isWallHit, phaseName: isWallHit ? err.phaseName : undefined },
+        {
+          jobId,
+          err: message,
+          stack,
+          isWallHit,
+          phaseName: wallError?.phaseName,
+          attempts: wallError?.attempts,
+        },
         'pipeline failed (or 撞墙)',
       );
-      await db.update(jobs).set({
+      const update: {
+        status: 'failed';
+        finishedAt: Date;
+        lastError: { message: string; stack?: string; isWallHit?: true };
+        humanInLoopReason: string | null;
+      } = {
         status: 'failed',
         finishedAt: new Date(),
-        lastError: { message, stack, isWallHit: isWallHit ? true : undefined },
-      }).where(eq(jobs.id, jobId));
+        lastError: { message, stack, ...(isWallHit ? { isWallHit: true } : {}) },
+        humanInLoopReason: isWallHit ? `wall:${wallError!.phaseName}:${wallError!.attempts}attempts` : null,
+      };
+      await db.update(jobs).set(update).where(eq(jobs.id, jobId));
+
+      // v0.5.5: 撞墙时通知 owner (spec §4.4). 配 HUMAN_IN_LOOP_WEBHOOK_URL 即发.
+      if (isWallHit) {
+        const env = getEnv();
+        const notifyResult = await notifyHumanInLoop(
+          env.HUMAN_IN_LOOP_WEBHOOK_URL,
+          buildHILPayload(jobId, wallError!),
+        );
+        logger.info(
+          { jobId, notify: notifyResult },
+          'human-in-loop notify dispatched (or skipped if webhook unset)',
+        );
+      }
+
       throw err;
     }
   });

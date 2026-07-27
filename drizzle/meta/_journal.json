@@ -43,6 +43,13 @@
       "when": 1785200000000,
       "tag": "0005_phase_creatomate_rendering",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785300000000,
+      "tag": "0006_human_in_loop_reason",
+      "breakpoints": true
     }
   ]
 }

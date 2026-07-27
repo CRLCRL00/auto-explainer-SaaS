@@ -31,6 +31,10 @@ export const envSchema = z.object({
   // P1 PR3: changed default '0' → '1'. After deploy, workers will use Trigger.dev
   // by default; set RUN_TRIGGER_DEV=0 to opt out (BullMQ primary path).
   RUN_TRIGGER_DEV: z.enum(['0', '1']).default('1'),
+
+  // v0.5.5: Human-in-Loop webhook URL (spec §4.4). 配了即撞墙时 POST 给 owner.
+  HUMAN_IN_LOOP_WEBHOOK_URL: z.string().url().optional(),
+
   BASIC_AUTH_USER: z.string().min(1),
   BASIC_AUTH_PASS: z.string().min(1),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
