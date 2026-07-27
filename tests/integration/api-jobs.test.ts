@@ -1,4 +1,21 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
+
+const mockTriggerConfigResolve = vi.fn().mockReturnValue({
+  projectRef: 'proj_test',
+  secretKey: 'trigger-secret-key-1234567890',
+  apiUrl: 'http://trigger-web:3030',
+  deployment: 'self-hosted',
+});
+const mockTriggerSdk = {
+  configure: vi.fn(),
+  tasks: {
+    trigger: vi.fn().mockResolvedValue({ id: 'run-test-abc-123' }),
+  },
+};
+
+vi.mock('@/lib/trigger', () => ({
+  triggerJob: vi.fn().mockResolvedValue({ runId: 'run-test-abc-123' }),
+}));
 
 beforeAll(() => {
   // set envs that getEnv() will read; otherwise tests will fail when
@@ -9,6 +26,11 @@ beforeAll(() => {
   process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'sk-ant-test-placeholder-key';
   process.env.BASIC_AUTH_USER = 'admin';
   process.env.BASIC_AUTH_PASS = 'changeme';
+  // P1 PR4: Trigger.dev env gate (resolveTriggerConfig reads these).
+  process.env.RUN_TRIGGER_DEV = '1';
+  process.env.TRIGGER_PROJECT_REF = 'proj_test';
+  process.env.TRIGGER_SECRET_KEY = 'trigger-secret-key-1234567890';
+  process.env.TRIGGER_API_URL = 'http://trigger-web:3030';
 });
 
 // 测试组结束清理 DB（避免重复跑测试污染 aesaas.jobs/job_events/job_artifacts）
@@ -17,8 +39,10 @@ beforeAll(() => {
 afterAll(async () => {
   try {
     const { getDb } = await import('@/lib/db');
-    const { jobs, jobEvents, jobArtifacts } = await import('@/lib/schema');
+    const { jobs, jobEvents, jobArtifacts, triggerRuns } = await import('@/lib/schema');
     const db = getDb();
+    // delete children first to satisfy FK constraints
+    await db.delete(triggerRuns);
     await db.delete(jobArtifacts);
     await db.delete(jobEvents);
     await db.delete(jobs);

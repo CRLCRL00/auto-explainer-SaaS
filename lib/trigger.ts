@@ -1,8 +1,7 @@
 // Trigger.dev v4 SDK wrapper (P1 PR1: 引入基础设施, 不切流).
 //
-// PR1 设计：仅提供 lazy client factory + 同步 API surface，
-// 不替换 lib/queue.ts (BullMQ 仍 active)。`getTriggerClient()` 是占位入口，
-// 真正切流要到 PR3 (RUN_TRIGGER_DEV=1 + worker/index.ts 改写) 才被调用。
+// PR1 设计：仅提供 lazy client factory + 同步 API surface.
+// PR3 (RUN_TRIGGER_DEV=1 default) + PR4 (BullMQ 删除) 后是真正的 enqueue 入口.
 //
 // HMR-safe: 用 globalThis 缓存 SDK module，避免 Next.js Fast Refresh 重复加载。
 

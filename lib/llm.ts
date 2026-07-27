@@ -19,7 +19,7 @@ import OpenAI from 'openai';
 import { getEnv } from './env';
 
 // P2 OpenRouter fallback: in-memory sliding window for fallback rate limiting.
-// 进程内有效；worker concurrency=1 (worker/index.ts), HMR restart 会 reset state.
+// 进程内有效；HMR restart 会 reset state.
 const FALLBACK_WINDOW_MS = 60_000;
 const FALLBACK_MAX_RECENT = 5;
 const fallbackRecent: number[] = [];

@@ -29,14 +29,15 @@ Authenticated by HTTP basic; see `.env.local` for `BASIC_AUTH_USER` /
 
 ## Worker / Queue
 
-Two engines coexist in the codebase while migration is in flight:
+Trigger.dev v4 is the only enqueue / consumer engine since PR4. BullMQ has
+been fully removed (`lib/queue.ts` + `worker/index.ts` deleted, npm deps
+uninstalled, dual-run fallback code dropped).
 
-| Engine        | Enqueue path                | Consumer                                | Status |
-|---------------|-----------------------------|-----------------------------------------|--------|
-| **Trigger.dev v4** (PR3) | `lib/trigger.ts` → `tasks.trigger()` | `trigger/jobs.ts` task handler (in-container `triggerdotdev/trigger.dev` runtime) | **default** since PR3 (RUN_TRIGGER_DEV=1) |
-| **BullMQ** (legacy)      | `lib/queue.ts` → `Queue.add()`        | `worker/index.ts` (`npm run worker`)    | dual-run fallback tail (odd-tail jobIds go here) + opt-out via `RUN_TRIGGER_DEV=0` |
+| Engine         | Enqueue path                          | Consumer                                              | Status |
+|----------------|---------------------------------------|--------------------------------------------------------|--------|
+| **Trigger.dev v4** | `lib/trigger.ts` → `tasks.trigger()` | `trigger/jobs.ts` task handler (in-container `triggerdotdev/trigger.dev` runtime) | **default and only** since PR4 |
 
-### Trigger.dev v4 (default since PR3)
+### Trigger.dev v4
 
 - Local dev: `npx trigger.dev dev`
 - Self-hosted prod: `docker compose up -d trigger-web` (PR1 added the service
@@ -47,15 +48,9 @@ Two engines coexist in the codebase while migration is in flight:
 - Task definitions live in [trigger/jobs.ts](trigger/jobs.ts). Adding a new
   task: add a `task({ id: '...', run: async (payload, ctx) => { ... } })`
   export; the SDK picks it up on next dev restart / redeploy.
-
-### BullMQ (dual-run fallback)
-
-- `RUN_TRIGGER_DEV=1` (default after PR3): every even-tail char jobId goes to
-  Trigger.dev; odd-tail jobs (and Trigger.dev failures) fall back to BullMQ.
-- `RUN_TRIGGER_DEV=0`: 100% BullMQ (legacy behaviour, identical to pre-PR2).
-- Local worker: `npm run worker` (or `tsx watch worker/index.ts`).
-- Pruning only happens in PR4. Until then, both engines are alive in the
-  codebase.
+- `RUN_TRIGGER_DEV=0` is reserved as an escape hatch — currently a no-op
+  stub (route will throw on every enqueue). Don't set it; flip the
+  docker-compose stack instead if you really need to take Trigger.dev offline.
 
 ## Render pipeline (P0 POC in flight)
 
