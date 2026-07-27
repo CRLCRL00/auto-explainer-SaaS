@@ -30,13 +30,17 @@ function hasRealAnthropicKey(): boolean {
 }
 
 describe('pipeline smoke', () => {
-  it('runs a job end-to-end producing mp4', async () => {
+  it('runs a job end-to-end producing mp4 (legacy FFmpeg)', async () => {
     if (!process.env.RUN_SLOW_TESTS) {
       console.log('skip: set RUN_SLOW_TESTS=1 to enable');
       return;
     }
     if (!hasRealAnthropicKey()) {
       console.log('skip: ANTHROPIC_API_KEY not set or is placeholder (real key required for E2E)');
+      return;
+    }
+    if (process.env.RUN_CREATOMATE_POC === '1') {
+      console.log('skip legacy: RUN_CREATOMATE_POC=1 set; using Creatomate path instead');
       return;
     }
 
@@ -61,6 +65,46 @@ describe('pipeline smoke', () => {
     const [updated] = await db.select().from(jobs).where((j: any) => j.id as any).limit(1);
     // TODO(Task 14/15 land): replace above no-op predicate with `eq(jobs.id, jobId)`
     // from drizzle-orm so updated refers to the seeded job, not an arbitrary row.
+    expect(updated.status).toBe('done');
+  }, { timeout: 600_000 });
+
+  // P0 POC: Creatomate SaaS path. Same job lifecycle as legacy but uses encode-creatomate.ts.
+  it('runs a job end-to-end producing mp4 (Creatomate SaaS POC)', async () => {
+    if (!process.env.RUN_SLOW_TESTS) {
+      console.log('skip: set RUN_SLOW_TESTS=1 to enable');
+      return;
+    }
+    if (!hasRealAnthropicKey()) {
+      console.log('skip: ANTHROPIC_API_KEY not set or is placeholder');
+      return;
+    }
+    if (process.env.RUN_CREATOMATE_POC !== '1') {
+      console.log('skip Creatomate: RUN_CREATOMATE_POC=1 not set');
+      return;
+    }
+    if (!process.env.CREATOMATE_API_KEY || process.env.CREATOMATE_API_KEY.length < 10) {
+      console.log('skip Creatomate: CREATOMATE_API_KEY not set');
+      return;
+    }
+
+    const { runPipeline } = await import('@/worker/pipeline');
+    const { getDb } = await import('@/lib/db');
+    const { jobs } = await import('@/lib/schema');
+    const db = getDb();
+    const [job] = await db.insert(jobs).values({
+      userId: 'admin',
+      inputType: 'text',
+      inputPayload: { topic: '测试 Creatomate POC alpha' },
+    }).returning();
+    const jobId = job.id;
+
+    await runPipeline(jobId);
+
+    const outPath = path.join(process.cwd(), 'storage', 'jobs', jobId, 'video.mp4');
+    const stat = await fs.stat(outPath);
+    expect(stat.size).toBeGreaterThan(10_000);
+
+    const [updated] = await db.select().from(jobs).where((j: any) => j.id as any).limit(1);
     expect(updated.status).toBe('done');
   }, { timeout: 600_000 });
 });

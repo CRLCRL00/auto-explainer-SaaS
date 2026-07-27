@@ -10,6 +10,7 @@ import { phaseHtml } from './phases/html';
 import { phaseProbe } from './phases/probe';
 import { phaseRecord } from './phases/record';
 import { phaseEncode } from './phases/encode';
+import { phaseEncodeCreatomate } from './phases/encode-creatomate';
 
 type PhaseName = (typeof phaseEnum.enumValues)[number];
 
@@ -17,6 +18,10 @@ interface PipelineStep {
   name: PhaseName;
   run: (jobId: string) => Promise<void>;
 }
+
+// P0 POC: RUN_CREATOMATE_POC=1 时把最后的 encode phase 切到 Creatomate SaaS 路径，
+// 旧 FFmpeg 路径保留作回退 (默认)。详见 docs/refactor-plan-v0.1.md §7.2。
+const USE_CREATOMATE_POC = process.env.RUN_CREATOMATE_POC === '1';
 
 // v0.0.1 简化：所有阶段顺序跑，单 attempt，失败直接 failed。
 // v0.5 起加 retry + 撞墙拐点（spec §4）。
@@ -28,7 +33,7 @@ const PHASE_ORDER: PipelineStep[] = [
   { name: 'html_ready',     run: phaseHtml },        // render + selector
   { name: 'probing',        run: phaseProbe },
   { name: 'recording_done', run: phaseRecord },
-  { name: 'done',           run: phaseEncode },
+  { name: 'done',           run: USE_CREATOMATE_POC ? phaseEncodeCreatomate : phaseEncode },
 ];
 
 export async function runPipeline(jobId: string) {
