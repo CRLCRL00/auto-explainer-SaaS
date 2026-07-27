@@ -18,6 +18,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { getEnv } from './env';
 
+// P2 OpenRouter fallback: in-memory sliding window for fallback rate limiting.
+// 进程内有效；worker concurrency=1 (worker/index.ts), HMR restart 会 reset state.
+const FALLBACK_WINDOW_MS = 60_000;
+const FALLBACK_MAX_RECENT = 5;
+const fallbackRecent: number[] = [];
+
 const DEFAULT_MODEL_ANTHROPIC = 'claude-sonnet-4-5';
 const DEFAULT_MODEL_OPENAI_COMPAT = 'gpt-4o-mini'; // OpenAI-compatible 端点的常用 default
 
@@ -102,7 +108,8 @@ export async function callLlm(opts: {
     // MiniMax 不走 OpenAI SDK 包装：用户决策 (commit 后 notes)。MiniMax-M3 的 chat 实际是
     // /v1/text/chatcompletion_v2 路径，OpenAI SDK 会拼 /v1/chat/completions → 路径错。
     // 直接 fetch 到 MiniMax 自己的 endpoint，body 用 OpenAI-style messages。
-    return callMinimax(cfg, opts, logger);
+    // P2: 外层包 OpenRouter fallback (cap rate via in-memory sliding window).
+    return callMinimaxWithFallback(cfg, opts, logger);
   }
   return callOpenAICompat(cfg, opts, logger);
 }
@@ -264,6 +271,115 @@ async function callMinimax(
       logger.warn(
         { attempt, backoff, err: err instanceof Error ? err.message : String(err) },
         'minimax retry',
+      );
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * P2 defensive wrapper: 当 callMinimax 抛出不可重试错误 (HTTP 4xx 或 base_resp 业务码 ≥ 4000)
+ * 时，自动切换到 OpenRouter 走 minimax 模型 (或 OPENROUTER_FALLBACK_MODEL 配置的备用)。
+ *
+ * 触发条件 (详见 plan doc §7.1):
+ *   - OPENROUTER_API_KEY 未配 → 透传原 error (不启用 fallback)
+ *   - callMinimax 成功 → 直接返回 (不触发)
+ *   - HTTP 4xx (除 429) → 切换
+ *   - base_resp 业务码 ≥ 4000 且 < 5000 → 切换
+ *   - 频率计数: 连续 fallback 触发 ≥ FALLBACK_MAX_RECENT 次 / FALLBACK_WINDOW_MS 窗口 → fast-fail
+ *
+ * 不污染 llm-settings.json：fallback 完全基于环境变量，与 user 配置解耦。
+ *
+ * ⚠️ plan §7.1 严格把 fallback 限定到 4xx HTTP + 4xxx 业务码；1008 / 2013 等业务码虽不可重试，
+ * 但**不会**触发 fallback (按 plan)。如需扩展成"所有不可 retry 错误都 fallback"，未来 1 个 PR。
+ */
+async function callMinimaxWithFallback(
+  cfg: ResolvedLlmConfig,
+  opts: { system?: string; messages: LlmMessage[]; maxTokens?: number },
+  logger: { warn: (obj: object, msg: string) => void },
+): Promise<string> {
+  const env = getEnv();
+  // 清理窗口外时间戳
+  const now = Date.now();
+  while (fallbackRecent.length > 0 && fallbackRecent[0] < now - FALLBACK_WINDOW_MS) {
+    fallbackRecent.shift();
+  }
+  // 频率计数 fast-fail
+  if (fallbackRecent.length >= FALLBACK_MAX_RECENT) {
+    throw new Error('openrouter fallback rate-limit exceeded; refusing to attempt');
+  }
+
+  try {
+    return await callMinimax(cfg, opts, logger);
+  } catch (err: unknown) {
+    // 未配 key → 透传原 error
+    if (!env.OPENROUTER_API_KEY) throw err;
+
+    // 错误分类: 用 : 区分 HTTP 状态码 (minimax 4xx: text), 空格区分业务码 (minimax 4xxx msg)
+    // —— 避免 4xxx 业务码被 (\d{3}) 误匹配为 HTTP 状态码
+    const message = err instanceof Error ? err.message : String(err);
+    const httpMatch = /minimax (\d{3}):/.exec(message);
+    const bizMatch = /minimax (\d{4}) /.exec(message);
+    const httpStatus = httpMatch ? Number(httpMatch[1]) : undefined;
+    const businessCode = bizMatch ? Number(bizMatch[1]) : undefined;
+
+    const shouldFallback =
+      (httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 429) ||
+      (businessCode !== undefined && businessCode >= 4000 && businessCode < 5000);
+
+    if (!shouldFallback) throw err;
+
+    // 触发 fallback：记录窗口 + 调 OpenRouter
+    fallbackRecent.push(now);
+    logger.warn(
+      { from: 'minimax', to: 'openrouter', err: message, windowSize: fallbackRecent.length },
+      'llm fallback to openrouter',
+    );
+    return callOpenRouter(cfg, opts, logger, env);
+  }
+}
+
+/**
+ * P2: 通过 OpenAI SDK 调 OpenRouter (OpenAI 兼容协议，但走 OpenRouter 自家的 baseURL)。
+ * 1 次 retry (minimax 路径已经 retry 3 次，叠加太重)。
+ */
+async function callOpenRouter(
+  cfg: ResolvedLlmConfig,
+  opts: { system?: string; messages: LlmMessage[]; maxTokens?: number },
+  logger: { warn: (obj: object, msg: string) => void },
+  env: { OPENROUTER_API_KEY?: string; OPENROUTER_BASE_URL?: string; OPENROUTER_FALLBACK_MODEL?: string },
+): Promise<string> {
+  const apiKey = env.OPENROUTER_API_KEY!; // 已被 callMinimaxWithFallback 守卫
+  const baseURL = env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1';
+  const model = env.OPENROUTER_FALLBACK_MODEL ?? cfg.model;
+
+  const client = new OpenAI({ apiKey, baseURL });
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
+  if (opts.system) messages.push({ role: 'system', content: opts.system });
+  for (const m of opts.messages) messages.push(m);
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await client.chat.completions.create({
+        model,
+        max_tokens: opts.maxTokens ?? 4096,
+        messages,
+      });
+      const choice = res.choices[0];
+      if (!choice?.message?.content) throw new Error('empty completion');
+      return choice.message.content;
+    } catch (err: unknown) {
+      lastErr = err;
+      const status = err && typeof err === 'object' && 'status' in err
+        ? (err as { status: unknown }).status
+        : undefined;
+      if (status && typeof status === 'number' && status >= 400 && status < 500 && status !== 429) break;
+      const backoff = Math.min(2 ** attempt * 1000, 4000);
+      logger.warn(
+        { attempt, backoff, err: err instanceof Error ? err.message : String(err) },
+        'openrouter retry',
       );
       await new Promise((r) => setTimeout(r, backoff));
     }

@@ -4,6 +4,10 @@ export const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
   ANTHROPIC_API_KEY: z.string().min(10),
+  // P2 OpenRouter fallback for minimax — leave OPENROUTER_API_KEY empty to disable fallback.
+  OPENROUTER_API_KEY: z.string().min(10).optional(),
+  OPENROUTER_BASE_URL: z.string().url().optional(),
+  OPENROUTER_FALLBACK_MODEL: z.string().min(1).optional(),
   BASIC_AUTH_USER: z.string().min(1),
   BASIC_AUTH_PASS: z.string().min(1),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
