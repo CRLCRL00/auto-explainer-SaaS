@@ -24,7 +24,9 @@ export const envSchema = z.object({
   TRIGGER_SECRET_KEY: z.string().min(10).optional(),
   TRIGGER_API_URL: z.string().url().optional(),
   TRIGGER_DEPLOYMENT: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
-  RUN_TRIGGER_DEV: z.enum(['0', '1']).default('0'),
+  // P1 PR3: changed default '0' → '1'. After deploy, workers will use Trigger.dev
+  // by default; set RUN_TRIGGER_DEV=0 to opt out (BullMQ primary path).
+  RUN_TRIGGER_DEV: z.enum(['0', '1']).default('1'),
   BASIC_AUTH_USER: z.string().min(1),
   BASIC_AUTH_PASS: z.string().min(1),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
