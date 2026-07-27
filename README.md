@@ -55,16 +55,24 @@ uninstalled, dual-run fallback code dropped).
 ## Render pipeline (P0 全量: Creatomate 是默认路径)
 
 [worker/phases/encode-creatomate.ts](worker/phases/encode-creatomate.ts) 是
-唯一的 render 实现 — 调用 Creatomate SaaS 组装 (1080×1920 / 30s / mp4), 中文配音
-按 `AZURE_SPEECH_KEY` 配齐情况可选。P0 全量已经 hard cut:
+唯一的 render 实现 — 调用 Creatomate SaaS 组装 (1080×1920 / 30s / mp4). 默认**多
+帧 composition** 而非单帧静态图:
+
+- frames 是 Puppeteer record (~30fps/32s ~900 PNG)
+- 上传前**抽帧到 30 张**: 头尾帧保留, 中间均匀. 每张 Image 设 `time + duration`
+  形成视频感 (每秒一帧)
+- 字幕按 beat 时段切 (`time + duration = beatDuration`)
+- 中文配音按 `AZURE_SPEECH_KEY` 配齐可选
+
+**P0 全量 hard cut 状态**:
 
 - 不再有 `RUN_CREATOMATE_POC` flag
 - 不再有 FFmpeg 依赖 (`ffmpeg-static` / `@ffmpeg-installer/ffmpeg` 已卸)
-- [worker/phases/encode.ts](worker/phases/encode.ts) 保留为 thin wrapper + `@deprecated`
-  的 `buildEncodeArgs` (返空数组, 1 版本后删)
+- [worker/phases/encode.ts](worker/phases/encode.ts) 是 thin wrapper re-export +
+  `@deprecated buildEncodeArgs` (1 版本后删)
 
 部署侧: `CREATOMATE_TEMPLATE_ID` 必须在 Creatomate 后台先建好 30s 5-beat 模板 (或
-`RUN_CREATOMATE_TEMPLATE_ID` 设成内置默认 `creatomate-builtin-30s-5beats`)。
+`RUN_CREATOMATE_TEMPLATE_ID` 设成内置默认 `creatomate-builtin-30s-5beats`).
 
 ## LLM provider dispatch
 

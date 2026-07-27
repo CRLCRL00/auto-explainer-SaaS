@@ -2,6 +2,8 @@
 //
 // 设计:
 //   - frames 是 Puppeteer record 阶段 (32 buffer, 30fps, ~30s) 输出的 PNG 序列.
+//   - frame sampling: 30 帧按 ~1s 间隔抽成 multi-frame composition
+//     (不再是单帧 30s 静态图). 这是 v0+ multi-frame commit 的关键改进.
 //   - 读 script.json (ScriptWriter 产物) → 提取 caption 字幕层 (per-beat Text elements)
 //   - 可选地调用 Azure TTS 合成 audio.mp3, 加为 Audio element.
 //   - submit 给 Creatomate.Source → render → download mp4 → 落 job_artifacts.
@@ -33,6 +35,9 @@ export const DEFAULT_OUTPUT_WIDTH = 1080;
 export const DEFAULT_OUTPUT_HEIGHT = 1920;
 export const DEFAULT_DURATION_SEC = 30;
 export const RENDER_TIMEOUT_SEC = 600; // 10 分钟 (SDK doc)
+
+// 抽帧上限: 30 frames (约每秒一帧). 保留 Creatomate element 余量给 captions + audio.
+const MAX_FRAME_SAMPLES = 30;
 
 export interface EncodeCreatomateOptions {
   jobDir?: string;
@@ -127,23 +132,60 @@ export async function phaseEncodeCreatomate(
     'creatomate encode starting',
   );
 
-  // 4. 组装 elements — Image + Text (caption per beat) + Audio (optional).
-  //    Creatomate 顶层 import 提供所有 element classes; 用 loosish any 兼容不同
-  //    elements override set (SchemaType 差异不影响 runtime).
+  // 4. 抽帧 + 组装 elements — multi-frame Image + Text (per-beat) + Audio.
+  //
+  //    旧方案: 1 张 PNG 全程 (静态图). 新方案: 30 帧按时段切 (短视频感).
+  //    sampling 逻辑:
+  //      - 帧数 < MAX_FRAME_SAMPLES (30) → 全用
+  //      - 否则按 step = ceil(total / MAX_FRAME_SAMPLES) 抽, 头尾帧保证保留
+  //    每帧 Image 设置 time+duration 形成 video-like composition.
+  //
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const elements: Creatomate.ElementBase<any>[] = [
-    new Creatomate.Image({
-      source: `file://${path.join(framesDir, firstFrame)}`,
-      fit: 'cover',
-    }),
-  ];
+  const elements: Creatomate.ElementBase<any>[] = [];
+
+  // 抽帧 (含头尾两边, 中间均匀)
+  const totalFrames = pngFrames.length;
+  if (totalFrames === 0) {
+    // readdir 检查已发现 total > 0, 防御性: 若为 0 走原 single-frame 路径.
+    elements.push(
+      new Creatomate.Image({
+        source: `file://${path.join(framesDir, firstFrame)}`,
+        fit: 'cover',
+      }),
+    );
+  } else {
+    const sampleCount = Math.min(MAX_FRAME_SAMPLES, totalFrames);
+    const step = totalFrames / sampleCount;
+    const sampledFrames: Array<{ name: string; time: number }> = [];
+    for (let i = 0; i < sampleCount; i++) {
+      // 末帧特殊处理: i = sampleCount-1 直接取最后一帧 (避免最后 < 0.1s 短视频感差)
+      const idx = i === sampleCount - 1 ? totalFrames - 1 : Math.floor(i * step);
+      const clamped = Math.min(idx, totalFrames - 1);
+      sampledFrames.push({ name: pngFrames[clamped], time: (i / sampleCount) * DEFAULT_DURATION_SEC });
+    }
+    for (const f of sampledFrames) {
+      elements.push(
+        new Creatomate.Image({
+          source: `file://${path.join(framesDir, f.name)}`,
+          time: f.time,
+          duration: DEFAULT_DURATION_SEC / sampledFrames.length + 0.05, // 5% overlap 避免黑边
+          fit: 'cover',
+        }),
+      );
+    }
+    logger.info({ jobId, sampledFrames: sampledFrames.length, totalFrames }, 'sampled frames for multi-frame composition');
+  }
 
   if (script) {
     for (let i = 0; i < script.beats.length; i++) {
       const caption = script.beats[i].caption;
+      // per-beat time slice: caption 仅在该 beat 时段显示
+      const beatDuration = DEFAULT_DURATION_SEC / script.beats.length;
       elements.push(
         new Creatomate.Text({
           text: caption,
+          time: i * beatDuration,
+          duration: beatDuration,
           width: '90%',
           height: 'auto',
           xAlignment: '50%',
@@ -155,10 +197,8 @@ export async function phaseEncodeCreatomate(
           fontSize: '4.5 vh',
           fillColor: '#ffffff',
           shadow: new Creatomate.Shadow('rgba(0,0,0,0.7)', '1.4 vmin'),
-          // duration 默认继承 source — caption 全程可见
         }),
       );
-      void i; // ununsed — 留作未来 per-beat 时间码编排
     }
   }
 

@@ -140,7 +140,7 @@ describe('phaseEncodeCreatomate (P0 全量)', () => {
       height: number;
       duration: number;
       frameRate: number;
-      elements: Array<{ source?: string; fit?: string; text?: string }>;
+      elements: Array<{ source?: string; fit?: string; text?: string; time?: number; duration?: number }>;
     };
     expect(sourceArg.outputFormat).toBe('mp4');
     expect(sourceArg.width).toBe(1080);
@@ -149,11 +149,17 @@ describe('phaseEncodeCreatomate (P0 全量)', () => {
     expect(sourceArg.frameRate).toBe(30);
     expect(Array.isArray(sourceArg.elements)).toBe(true);
 
-    // 无 script.json + 无 Azure key = 仅 Image element
-    expect(sourceArg.elements).toHaveLength(1);
-    const imgArg = sourceArg.elements[0];
-    expect(imgArg.source).toMatch(/^file:\/\/.*f_00000\.png$/);
-    expect(imgArg.fit).toBe('cover');
+    // 无 script.json + 无 Azure key = multi-frame sampling only (3 frames available → 全部用)
+    expect(sourceArg.elements).toHaveLength(3);
+    sourceArg.elements.forEach((el, i) => {
+      expect(el.source).toMatch(/^file:\/\/.*f_.*\.png$/);
+      expect(el.fit).toBe('cover');
+      // time 应该是递增的 (sequential frames across duration)
+      expect(typeof el.time).toBe('number');
+      expect(typeof el.duration).toBe('number');
+    });
+    // sampling 头帧 f_00000.png
+    expect(sourceArg.elements[0].source).toMatch(/f_00000\.png$/);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledWith('https://cdn.creatomate.com/renders/r-123.mp4');
@@ -167,7 +173,7 @@ describe('phaseEncodeCreatomate (P0 全量)', () => {
     await expect(fs.stat(path.join(tmpJobDir, 'frames'))).rejects.toThrow();
   });
 
-  it('2. script.json present + 3 captions → Image + 3 Text elements (no audio)', async () => {
+  it('2. script.json present + 3 captions → multi-frame + 3 Text per-beat (no audio)', async () => {
     await writeFakeScript(tmpJobDir, {
       title: '测试标题',
       beats: [
@@ -188,13 +194,23 @@ describe('phaseEncodeCreatomate (P0 全量)', () => {
 
     await phaseEncodeCreatomate('test-job-captions', { jobDir: tmpJobDir });
 
-    const sourceArg = refs.sourceCtor.mock.calls[0][0] as { elements: Array<{ text?: string; source?: string }> };
-    expect(sourceArg.elements.length).toBeGreaterThanOrEqual(4); // 1 Image + 3 Text
+    const sourceArg = refs.sourceCtor.mock.calls[0][0] as {
+      elements: Array<{ text?: string; source?: string; time?: number; duration?: number }>;
+    };
+    // 3 frames + 3 captions = 6 elements
+    expect(sourceArg.elements.length).toBeGreaterThanOrEqual(6);
     expect(refs.textCtor).toHaveBeenCalledTimes(3);
-    expect(refs.imageCtor).toHaveBeenCalledTimes(1);
-    expect(refs.audioCtor).not.toHaveBeenCalled(); // 无 Azure key → 不加 Audio
+    expect(refs.imageCtor).toHaveBeenCalledTimes(3);
+    expect(refs.audioCtor).not.toHaveBeenCalled();
     const texts = refs.textCtor.mock.calls.map((c) => c[0] as { text: string });
     expect(texts.map((t) => t.text)).toEqual(['第一句', '第二句', '第三句']);
+    // captions per-beat 都设了 time 字段
+    texts.forEach((_, i) => {
+      const call = refs.textCtor.mock.calls[i];
+      const props = call[0] as { time: number; duration: number };
+      expect(typeof props.time).toBe('number');
+      expect(typeof props.duration).toBe('number');
+    });
   });
 
   it('3. throws when CREATOMATE_API_KEY missing', async () => {
@@ -214,6 +230,30 @@ describe('phaseEncodeCreatomate (P0 全量)', () => {
       phaseEncodeCreatomate('test-job-3', { jobDir: tmpJobDir }),
     ).rejects.toThrow(/no PNG frames/);
     expect(MockedClientCtor).not.toHaveBeenCalled();
+  });
+
+  it('5b. many frames (>=60) → samples down to MAX_FRAME_SAMPLES', async () => {
+    const manyFrames = Array.from({ length: 60 }, (_, i) => `f_${String(i).padStart(5, '0')}.png`);
+    await writeFakeFrames(path.join(tmpJobDir, 'frames'), manyFrames);
+    mockedGetEnv.mockReturnValue({ CREATOMATE_API_KEY: 'creato-key-1234567890' } as never);
+    refs.clientRender.mockResolvedValue([
+      { id: 'r-many', status: 'succeeded', url: 'https://cdn/x.mp4', outputFormat: 'mp4', renderScale: 1 },
+    ]);
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new ArrayBuffer(8),
+    });
+
+    await phaseEncodeCreatomate('test-job-many-frames', { jobDir: tmpJobDir });
+
+    expect(refs.imageCtor).toHaveBeenCalledTimes(30); // MAX_FRAME_SAMPLES cap
+    expect(refs.textCtor).not.toHaveBeenCalled(); // 无 script.json
+    expect(refs.audioCtor).not.toHaveBeenCalled();
+    // 头尾帧强制保留 — first frame f_00000.png, last f_00059.png
+    const imageSources = refs.imageCtor.mock.calls.map((c) => (c[0] as { source: string }).source);
+    expect(imageSources[0]).toMatch(/f_00000\.png$/);
+    expect(imageSources.at(-1)).toMatch(/f_00059\.png$/);
   });
 
   it('5. throws when Creatomate render status is not "succeeded"', async () => {
