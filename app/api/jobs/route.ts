@@ -5,7 +5,7 @@ import { jobs, triggerRuns } from '@/lib/schema';
 import { createBasicAuthMiddleware, unauthorizedResponse } from '@/lib/auth';
 import { recordEvent } from '@/lib/job-events';
 import { getEnv } from '@/lib/env';
-import { triggerJob } from '@/lib/trigger';
+import { triggerJob, inlineDevEnqueue } from '@/lib/trigger';
 import { logger } from '@/lib/logger';
 
 const InputSchema = z.object({
@@ -66,10 +66,15 @@ export async function POST(req: Request) {
       inputPayload: { topic: parsed.data.topic },
     }).returning();
 
-    // P1 PR4: enqueue path is 100% Trigger.dev (no more BullMQ fallback).
-    // RUN_TRIGGER_DEV=0 path was removed; if the flag is unset, the schema
-    // validator will default it to '1' (PR3 change) — i.e. trigger always.
-    const { runId } = await triggerJob({ jobId: job.id });
+    // enqueue 分支:
+    //   - production (NODE_ENV='production') → 走真 trigger.dev SDK 真发请求
+    //     到 trigger-web:3030. 需要 TRIGGER_* env 配齐 + container healthy.
+    //   - dev (其他 NODE_ENV) → 走 inlineDevEnqueue — fire-and-forget runPipeline
+    //     in-process, 不依赖 trigger-web container. 让 dev '点击开始生成' 立刻能跑.
+    const { runId } =
+      process.env.NODE_ENV === 'production'
+        ? await triggerJob({ jobId: job.id })
+        : await inlineDevEnqueue({ jobId: job.id });
 
     // Audit row — trigger_runs.status / startedAt / finishedAt are populated
     // later by the Trigger.dev worker runtime via runs.retrieve polling.

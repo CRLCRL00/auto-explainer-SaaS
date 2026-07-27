@@ -110,3 +110,39 @@ export async function triggerJob(payload: { jobId: string }): Promise<{ runId: s
   }
   return { runId: handle.id };
 }
+
+// ─────────────────────────────────────────────────────────────────
+// dev mode 旁路 — 不依赖 trigger-web 容器, 直接 inline run pipeline.
+// ─────────────────────────────────────────────────────────────────
+//
+// 设计动机: local dev 默认 RUN_TRIGGER_DEV=1 时 SDK 真发请求到 trigger-web:3030
+// (docker-compose). 若 trigger-web image 慢拉 (~1.3GB) 或未启, dev 点'开始生成'
+// 立即返 500 — UX 差.
+//
+// inlineDevEnqueue 给 dev 一个无需 trigger-web container 也能立刻跑 pipeline 的
+// fallback. fire-and-forget runPipeline; 返 mock runId; client 拿到 201 立即
+// 看 /jobs/[id] polling status (runPipeline 异步 in-process 跑).
+//
+// prod 仍走 triggerJob (真正的 trigger-web workqueue). dev inline run 仅 ——
+//
+// 启用: NODE_ENV !== 'production' 时 route 自动走这条.
+// 关闭 (真测 trigger.dev 路径): docker compose up -d trigger-web + 配 TRIGGER_*
+// env 后, 设 NODE_ENV=production. 这时候 route 走 triggerJob.
+
+export async function inlineDevEnqueue(payload: { jobId: string }): Promise<{ runId: string }> {
+  const runId = `dev-inline-${payload.jobId.slice(0, 8)}`;
+  // dynamic import 避免 ESM cycle (worker/pipeline import 此文件 → 此文件 import worker/pipeline)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  void (async () => {
+    try {
+      const { runPipeline } = (await import('@/worker/pipeline')) as unknown as {
+        runPipeline: (jobId: string) => Promise<void>;
+      };
+      await runPipeline(payload.jobId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[dev inline runPipeline failed]', payload.jobId, err);
+    }
+  })();
+  return { runId };
+}
