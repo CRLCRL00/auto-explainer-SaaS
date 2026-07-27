@@ -52,18 +52,19 @@ uninstalled, dual-run fallback code dropped).
   stub (route will throw on every enqueue). Don't set it; flip the
   docker-compose stack instead if you really need to take Trigger.dev offline.
 
-## Render pipeline (P0 POC in flight)
+## Render pipeline (P0 全量: Creatomate 是默认路径)
 
-[worker/phases/encode-creatomate.ts](worker/phases/encode-creatomate.ts) wraps
-the Creatomate SaaS API for short-video assembly (1080×1920 / 30s / mp4 +
-zh-CN TTS via Azure Cognitive Services Speech). Enable the POC by setting
-`RUN_CREATOMATE_POC=1` — when unset, the legacy FFmpeg path
-([worker/phases/encode.ts](worker/phases/encode.ts)) still runs unchanged.
+[worker/phases/encode-creatomate.ts](worker/phases/encode-creatomate.ts) 是
+唯一的 render 实现 — 调用 Creatomate SaaS 组装 (1080×1920 / 30s / mp4), 中文配音
+按 `AZURE_SPEECH_KEY` 配齐情况可选。P0 全量已经 hard cut:
 
-| Toggle                              | Effect                                  |
-|-------------------------------------|-----------------------------------------|
-| `RUN_CREATOMATE_POC=0` (default)    | FFmpeg render via local `ffmpeg-static` |
-| `RUN_CREATOMATE_POC=1`              | Creatomate SaaS render + Azure TTS      |
+- 不再有 `RUN_CREATOMATE_POC` flag
+- 不再有 FFmpeg 依赖 (`ffmpeg-static` / `@ffmpeg-installer/ffmpeg` 已卸)
+- [worker/phases/encode.ts](worker/phases/encode.ts) 保留为 thin wrapper + `@deprecated`
+  的 `buildEncodeArgs` (返空数组, 1 版本后删)
+
+部署侧: `CREATOMATE_TEMPLATE_ID` 必须在 Creatomate 后台先建好 30s 5-beat 模板 (或
+`RUN_CREATOMATE_TEMPLATE_ID` 设成内置默认 `creatomate-builtin-30s-5beats`)。
 
 ## LLM provider dispatch
 

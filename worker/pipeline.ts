@@ -19,21 +19,23 @@ interface PipelineStep {
   run: (jobId: string) => Promise<void>;
 }
 
-// P0 POC: RUN_CREATOMATE_POC=1 时把最后的 encode phase 切到 Creatomate SaaS 路径，
-// 旧 FFmpeg 路径保留作回退 (默认)。详见 docs/refactor-plan-v0.1.md §7.2。
-const USE_CREATOMATE_POC = process.env.RUN_CREATOMATE_POC === '1';
+// P0 全量: 唯一 render path 是 Creatomate (POC flag RUN_CREATOMATE_POC 已删除, hard cut).
+// 旧 FFmpeg 路径退役 — phaseEncode 现只是 thin wrapper 透传 phaseEncodeCreatomate.
+// 详见 docs/refactor-plan-v0.1.md §7.3.
 
 // v0.0.1 简化：所有阶段顺序跑，单 attempt，失败直接 failed。
 // v0.5 起加 retry + 撞墙拐点（spec §4）。
 // Task 15：插入 ScriptWriter phase (script_ready) 在 planning_qg 后、html_ready 前。
+// P0 全量: 最后一步 phase 名改 'creatomate_rendering' — 反映 phaseEnum 新值, 让
+// jobs.phase 与 pipeline step name 一致.
 const PHASE_ORDER: PipelineStep[] = [
-  { name: 'planning_done',  run: phaseOutline },     // 完成 planning，等价于 planning_done
-  { name: 'planning_qg',    run: phaseQgPlan },      // 5-beat / duration 上限 / 必填字段 (spec §4.2)
-  { name: 'script_ready',   run: phaseScript },      // ScriptWriter: per-beat narration/caption/tts_text (Task 15)
-  { name: 'html_ready',     run: phaseHtml },        // render + selector
-  { name: 'probing',        run: phaseProbe },
-  { name: 'recording_done', run: phaseRecord },
-  { name: 'done',           run: USE_CREATOMATE_POC ? phaseEncodeCreatomate : phaseEncode },
+  { name: 'planning_done',       run: phaseOutline },     // 完成 planning，等价于 planning_done
+  { name: 'planning_qg',         run: phaseQgPlan },      // 5-beat / duration 上限 / 必填字段 (spec §4.2)
+  { name: 'script_ready',        run: phaseScript },      // ScriptWriter: per-beat narration/caption/tts_text (Task 15)
+  { name: 'html_ready',          run: phaseHtml },        // render + selector
+  { name: 'probing',             run: phaseProbe },
+  { name: 'recording_done',      run: phaseRecord },
+  { name: 'creatomate_rendering', run: phaseEncodeCreatomate },
 ];
 
 export async function runPipeline(jobId: string) {
