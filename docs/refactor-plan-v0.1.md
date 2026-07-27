@@ -141,3 +141,39 @@ P2 (半日) → P0 POC (3~5 天) → P0 全量 (1 周) → P1 (2~3 周)
   - [Creatomate Node.js SDK](https://github.com/creatomate/creatomate-node)
   - [OpenRouter OpenAI-compatible API](https://openrouter.ai/)
   - [Azure Speech Service](https://learn.microsoft.com/azure/ai-services/speech-service/)
+
+---
+
+## v0.5 follow-up (spec §4) — 2026-07-27 落地进展
+
+plan 写于 4 调研 + 决策当天；之后 5 个 commit (`9248393` `1cac05b` `6d4e096` `978449b` `d13d4fe`) 落地 spec §4 完整范围。新章节补当前状态:
+
+### v0.5 commits (16 → 实际 21, 含 v0.5.1~v0.5.5)
+
+| commit | 范围 | 状态 |
+|---|---|---|
+| `9248393` | v0.5 retry + QG-render/final + pipeline budget (§4.2) | ✅ 完全 |
+| `1cac05b` | v0.5.1 QG-plan / QG-script / QG-html (§4.2 LLM-side) | ✅ Helper 落地, pipeline 集成留 v0.5.6 |
+| `6d4e096` | v0.5.2 LLM auto-downgrade anthropic → GPT-4o (§4.3) | ✅ Helper 落地, llm.ts 集成留 v0.5.6 |
+| `978449b` | v0.5.4 ffprobe 集成 QG-final 时长 (§4.2) | ✅ 完全 |
+| `d13d4fe` | v0.5.5 Human-in-Loop webhook + jobs.human_in_loop_reason (§4.4 骨架) | ✅ 骨架, 完整 web UI 留 v0.6+ |
+
+### spec §4 实施进度表 (2026-07-27 末态)
+
+| §4 块 | 进度 | commit |
+|---|---|---|
+| §4.2 retry + 撞墙 | ✅ 完全 | `9248393` |
+| §4.2 QG-render / QG-final (+ ffprobe) | ✅ 完全 | `9248393` `978449b` |
+| §4.2 QG-plan / QG-script / QG-html | ⚠️ Helper 落地, pipeline.ts 集成 pending | `1cac05b` |
+| §4.3 LLM fallback (anthropic → GPT-4o) | ⚠️ Helper 落地, llm.ts 集成 pending | `6d4e096` |
+| §4.3 TTS auto-downgrade (Azure → Edge) | ❌ 未实施 (留 v0.5.7) | — |
+| §4.3 Chrome auto-downgrade (system → headless-shell) | ❌ 未实施 (留 v0.5.7) | — |
+| §4.3 LLM 离线 mode (pre-generated prompt) | ❌ 未实施 (留 v0.7+) | — |
+| §4.4 HIL webhook notify + jobs.human_in_loop_reason | ✅ 骨架落地 (HTTP webhook) | `d13d4fe` |
+| §4.4 Web UI dashboard (React + SSE) | ❌ 未实施 (留 v0.6+) | — |
+
+### Plan §9 引用更新
+
+- 完整实施轨迹 → `git log --oneline` (17 commits: 10 计划内 + 1 multi-frame + 5 v0.5 + 1 chore audit D1)
+- 测试: 194/194 unit + integration 全过
+- 部署 readiness: 见 audit report commit `5a44957`
