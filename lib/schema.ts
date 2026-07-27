@@ -3,10 +3,12 @@ import { pgTable, uuid, text, timestamp, integer, jsonb, varchar, pgEnum, index 
 // 阶段枚举（spec §3.1）
 // v0.0.1 新增 'script_ready'：位于 'planning_qg' 之后 / 'building' 之前，
 // 给 ScriptWriter 用（Task 15）。
+// P0 全量: 新增 'creatomate_rendering'（encode hard cut 后取代 'encoding'）。
+// 'encoding' 仍保留一个 minor 版本防数据反查冲突, 后续迁移完成可 drop.
 export const phaseEnum = pgEnum('phase', [
   'pending', 'planning', 'planning_done', 'planning_qg', 'script_ready', 'building', 'html_ready',
-  'probing', 'recording', 'recording_done', 'encoding', 'tts_caption',
-  'ppt_retro', 'finalize', 'done', 'failed', 'dead',
+  'probing', 'recording', 'recording_done', 'encoding', 'creatomate_rendering',
+  'tts_caption', 'ppt_retro', 'finalize', 'done', 'failed', 'dead',
 ]);
 
 export const inputTypeEnum = pgEnum('input_type', ['text', 'url', 'doc']);

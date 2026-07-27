@@ -9,13 +9,17 @@ export const envSchema = z.object({
   OPENROUTER_BASE_URL: z.string().url().optional(),
   OPENROUTER_FALLBACK_MODEL: z.string().min(1).optional(),
 
-  // P0 POC: Creatomate SaaS + Azure TTS
-  CREATOMATE_API_KEY: z.string().min(10).optional(),
+  // P0 全量: Creatomate SaaS 是默认 render path. P0 POC 的 RUN_CREATOMATE_POC
+  // flag 已废弃 — P0 全量 commit C2 删除 RUN_CREATOMATE_POC env schema 字段.
+  // P0 全量上线期间硬切, AGENTS 视觉验收已通过 (deployment-side 验证).
+  CREATOMATE_API_KEY: z.string().min(10),
   CREATOMATE_BASE_URL: z.string().url().optional(),
-  CREATOMATE_TEMPLATE_ID: z.string().min(1).optional(),
+  CREATOMATE_TEMPLATE_ID: z.string().min(1).default('creatomate-builtin-30s-5beats'),
+  CREATOMATE_POLL_MS: z.coerce.number().int().positive().default(3000),
+  CREATOMATE_POLL_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
+  // TTS 仍 optional —— 视频可不出配音. Azure Speech 真 key 部署侧 env 注入.
   AZURE_SPEECH_KEY: z.string().min(10).optional(),
   AZURE_SPEECH_REGION: z.string().min(1).optional(),
-  RUN_CREATOMATE_POC: z.enum(['0', '1']).default('0'),
 
   // P1 PR1: Trigger.dev v4 self-hosted (introduced, NOT wired).
   // RUN_TRIGGER_DEV=0 default: behaviour identical to pre-PR1 (BullMQ still active).

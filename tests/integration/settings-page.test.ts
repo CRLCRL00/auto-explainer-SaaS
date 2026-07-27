@@ -12,6 +12,8 @@ beforeAll(() => {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? 'postgres://postgres@127.0.0.1:5432/aesaas';
   process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
   process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'sk-ant-test-placeholder-key';
+  // P0 全量: CREATOMATE_API_KEY required in lib/env.ts; stub 进来.
+  process.env.CREATOMATE_API_KEY = process.env.CREATOMATE_API_KEY ?? 'creato-test-key-1234567890';
   // vitest worker 不支持 process.chdir() — 改用 vi.spyOn mock DEFAULT_SETTINGS_PATH 模块导出。
   // 但 llm-settings 模块用 module-level const DEFAULT_SETTINGS_PATH 固化，spy 不生效。
   // 改方案: mock 整个 @/lib/llm-settings 模块，把 read/write/clear 全部重定向到 tmpDir。

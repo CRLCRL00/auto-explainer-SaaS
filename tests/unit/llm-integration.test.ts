@@ -8,6 +8,8 @@ beforeAll(() => {
   process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'sk-ant-env-fallback-1234567890';
   process.env.BASIC_AUTH_USER = process.env.BASIC_AUTH_USER ?? 'admin';
   process.env.BASIC_AUTH_PASS = process.env.BASIC_AUTH_PASS ?? 'changeme';
+  // P0 全量: CREATOMATE_API_KEY required in lib/env.ts; stub 进来.
+  process.env.CREATOMATE_API_KEY = process.env.CREATOMATE_API_KEY ?? 'creato-test-key-1234567890';
 });
 
 // Mock 整个 llm-settings 模块来控制 readLlmSettings 返回值。

@@ -37,3 +37,13 @@ export async function safeRecordEvent(
     );
   }
 }
+
+// P0 全量: Creatomate render lifecycle events — 落 job_events 表为运维 audit.
+// 用 `as const` 保持字符串字面量类型，caller 不需要关心 enum 字符串。
+export const CreatomateEvents = {
+  RenderStarted: 'creatomate_render_started',
+  RenderProgress: 'creatomate_render_progress',
+  RenderCompleted: 'creatomate_render_completed',
+  RenderFailed: 'creatomate_render_failed',
+} as const;
+export type CreatomateEventName = typeof CreatomateEvents[keyof typeof CreatomateEvents];
