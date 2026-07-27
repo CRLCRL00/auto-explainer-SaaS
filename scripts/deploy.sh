@@ -24,6 +24,37 @@ ssh "$VPS" "mkdir -p $RELEASE_DIR && tar xzf /tmp/$(basename $TAR) -C $RELEASE_D
 echo "🔗 Atomic symlink swap…"
 ssh "$VPS" "ln -sfn $RELEASE_DIR $APP_DIR/current.new && mv -Tf $APP_DIR/current.new $APP_DIR/current"
 
+echo "🐳 Starting long-running docker services (trigger-web / clickhouse)…"
+# P1 audit D3: 之前 deploy.sh 没 pull/up trigger-web container. Trigger.dev worker
+# runtime 在 trigger-web 容器内, 这是 v0.5+ pipeline worker 的实际位置. 没起它
+# 等于 trigger.dev task queue 永远无人消费.
+#
+# 阶段:
+#   1. docker compose pull (新 image 拉本地; trigger-web + clickhouse 共 ~1.3GB)
+#   2. docker compose up -d --no-deps trigger-web clickhouse (only long-running;
+#      postgres / redis 由 VPS systemd 单独管, 不引入 docker compose up 全栈风险)
+#   3. 等 trigger-web healthcheck ready (3030/api/v1)
+#
+# .env (transfer to $APP_DIR/shared/.env.local before first run) 需含:
+#   TRIGGER_SECRET_KEY — 留空时用 'trigger-dev-secret-change-me' (dev only)
+#   TRIGGER_PROJECT_REF — 触发 web dashboard 注册时给的 project ref
+ssh "$VPS" "cd $APP_DIR/current && \
+  docker compose --env-file $APP_DIR/shared/.env.local \
+    pull trigger-web clickhouse"
+ssh "$VPS" "cd $APP_DIR/current && \
+  docker compose --env-file $APP_DIR/shared/.env.local \
+    up -d --no-deps --remove-orphans trigger-web clickhouse"
+
+echo "🐳 Waiting for trigger-web readiness (3030/api/v1)…"
+# 简单 retry + sleep 30s max — healthcheck 自己做(alpine image 没 curl)
+for i in $(seq 1 30); do
+  if ssh "$VPS" "wget -q -O - http://127.0.0.1:3030/api/v1 > /dev/null 2>&1"; then
+    echo "  trigger-web ready after ${i}s"
+    break
+  fi
+  sleep 1
+done
+
 echo "🔄 Restarting services…"
 # P1 PR3: BullMQ worker 进程不再启; Trigger.dev worker runtime 在 docker-compose trigger-web 容器内
 # 通过自管调度. 仅保留 web (Next.js) + nginx (basic auth + 反代 dashboard).
