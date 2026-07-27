@@ -69,3 +69,45 @@ export async function getTriggerSdk(): Promise<unknown> {
   void cfg;
   return mod;
 }
+
+// ─────────────────────────────────────────────────────────────────
+// P1 PR2: triggerJob(payload) — server-side SDK 调用 (tasks.trigger)
+// ─────────────────────────────────────────────────────────────────
+
+const TASK_IDENTIFIER = 'process-video-job';
+
+/**
+ * 通过 Trigger.dev v3 SDK tasks.trigger 提交任务。
+ *
+ * 重要语义:
+ *   - 必须 RUN_TRIGGER_DEV=1 且 env vars 配齐 (resolveTriggerConfig throw 否则)
+ *   - 实际 SDK 调用必先 configure() (lazy 每次 call 配一次; PR3 worker startup 移 top-level)
+ *   - SDK 未真正 configure 时, tasks.trigger() 会 throw — 这是 PR2 期望的"先 trigger 后 catch fallback"
+ *   - 失败应该被 caller catch, 不允许冒泡到顶层 (POST /api/jobs 期望 201 任何路径都 OK)
+ *
+ * 测试细节: vi.mock('@trigger.dev/sdk/v3') 注入 mock 后这个函数能跑可断言。
+ */
+export async function triggerJob(payload: { jobId: string }): Promise<{ runId: string }> {
+  const cfg = resolveTriggerConfig(); // throws if env 关 / 字段缺失
+  // 动态 import SDK 顶层 + 真实 v3 入口 (顶层 '@trigger.dev/sdk' 重导出 v3 module)
+  const sdk = (await import('@trigger.dev/sdk/v3')) as {
+    configure?: (opts: { secretKey: string; apiUrl: string; projectRef: string }) => void;
+    tasks?: { trigger?: (id: string, payload: object) => Promise<{ id: string }> };
+  };
+  if (typeof sdk.configure !== 'function' || !sdk.tasks?.trigger) {
+    throw new Error(
+      `[Trigger.dev] SDK v3 顶层导出缺 configure/tasks.trigger — SDK 版本不兼容或 mock 不正确`,
+    );
+  }
+  // configure 是 idempotent; PR2 stub 暂每 call 配一次 (PR3 worker startup 移 top-level)
+  sdk.configure({
+    secretKey: cfg.secretKey,
+    apiUrl: cfg.apiUrl,
+    projectRef: cfg.projectRef,
+  });
+  const handle = await sdk.tasks.trigger(TASK_IDENTIFIER, payload);
+  if (!handle?.id) {
+    throw new Error(`[Trigger.dev] tasks.trigger 未返回 run id (${JSON.stringify(handle)})`);
+  }
+  return { runId: handle.id };
+}

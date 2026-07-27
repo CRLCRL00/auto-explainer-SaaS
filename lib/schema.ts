@@ -53,3 +53,22 @@ export const jobArtifacts = pgTable('job_artifacts', {
 }, (table) => [
   index('job_artifacts_job_id_idx').on(table.jobId),
 ]);
+
+// P1 PR2: Trigger.dev run-id 审计表 — 写到本地避免每次切到 Trigger.dev dashboard 看状态。
+// 字段集:
+//   jobId   → 关联 jobs (cascade delete)
+//   runId   → Trigger.dev 返回的 run id (用于后续 runs.retrieve 状态拉取)
+//   status  → 'pending' | 'running' | 'completed' | 'failed' (由 worker 端 SDK 状态 polling 更新)
+//   startedAt / finishedAt → SDK 端 webhooks/PR3 worker 端 polling 同步写
+// 注意: PR2 仅声明表 + 写 migration 文件; PR3 worker 端负责 populate.
+export const triggerRuns = pgTable('trigger_runs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  jobId: uuid('job_id').notNull().references(() => jobs.id, { onDelete: 'cascade' }),
+  runId: varchar('run_id', { length: 128 }).notNull(),
+  status: varchar('status', { length: 32 }).notNull().default('pending'),
+  startedAt: timestamp('started_at', { withTimezone: true }),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('trigger_runs_job_id_idx').on(table.jobId),
+]);
