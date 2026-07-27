@@ -9,20 +9,28 @@ export default function Home() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // trim 防止 whitespace-only topic 通过 disabled 但被 server 拒 (空洞无语意)
+    const trimmed = topic.trim();
+    if (!trimmed) {
+      setResult({ error: 'topic 不能为空或仅空白字符' });
+      return;
+    }
     setSubmitting(true);
     setResult(null);
     try {
+      // 不要在 client 端 hardcode basic auth header:
+      //   - dev mode (npm run dev): server route 在 NODE_ENV !== 'production' 时跳过 auth.
+      //     user 直接 curl 也行.
+      //   - prod mode: nginx 在前面用 basic_auth 拦 (docs/nginx-auto-explainer.conf),
+      //     验证后 reverse proxy 到 next.js, client 不需要再发 header.
       const res = await fetch('/api/jobs', {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Basic ${btoa(`${process.env.NEXT_PUBLIC_BASIC_AUTH_USER ?? 'admin'}:${process.env.NEXT_PUBLIC_BASIC_AUTH_PASS ?? 'changeme'}`)}`,
-        },
-        body: JSON.stringify({ inputType: 'text', topic }),
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ inputType: 'text', topic: trimmed }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setResult({ error: data.error ?? 'unknown' });
+        setResult({ error: data.error ?? `status_${res.status}` });
       } else {
         setResult({ jobId: data.jobId });
       }
@@ -52,7 +60,7 @@ export default function Home() {
           maxLength={500}
           required
         />
-        <button type="submit" disabled={submitting || topic.length === 0}>
+        <button type="submit" disabled={submitting || topic.trim().length === 0}>
           {submitting ? '提交中…' : '开始生成'}
         </button>
       </form>

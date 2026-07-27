@@ -22,8 +22,17 @@ function authMw() {
 }
 
 export async function POST(req: Request) {
-  const user = authMw()(req);
-  if (!user) return unauthorizedResponse();
+  // dev mode 跳过 basic auth (nginx 在 prod 反代时拦).
+  // 这里 NODE_ENV 由 Next.js 在 build time / runtime 设置:
+  //   - `next dev` → 'development'
+  //   - `next start` → 'production' (after `npm run build`)
+  // NOTE: 这一行不是 security barrier — dev 是本地可信. 生产必须经 nginx basic auth.
+  let user = 'dev';
+  if (process.env.NODE_ENV === 'production') {
+    const authedUser = authMw()(req);
+    if (!authedUser) return unauthorizedResponse();
+    user = authedUser;
+  }
 
   // 早返回大 body（避免 req.json() 一次性读入内存）
   const lenHeader = req.headers.get('content-length');

@@ -18,6 +18,11 @@ vi.mock('@/lib/trigger', () => ({
 }));
 
 beforeAll(() => {
+  // 强制 production 模式: 集成测试要跑完整 auth 路径; 这与 dev mode (skipped) 是不同分
+  // 支, 需要 resetModules 让 route.ts 在 NODE_ENV=production 下重新 evaluate.
+  process.env.NODE_ENV = 'production';
+  vi.resetModules();
+
   // set envs that getEnv() will read; otherwise tests will fail when
   // route.ts → lib/db.ts → lib/logger.ts (module-level getEnv()) chain triggers lookup.
   // .env.local isn't auto-loaded by vitest, so all required keys must be set here.
