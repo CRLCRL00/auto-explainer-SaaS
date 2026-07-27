@@ -14,6 +14,31 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+  # P1 PR1 init: create the triggerdev database once per stack boot.
+  # trigger-web container's DATABASE_URL points at triggerdev — without this init,
+  # trigger-web startup fails with "database does not exist".
+  init-trigger-db:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./scripts/init-trigger-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    entrypoint:
+      - psql
+      - -v
+      - ON_ERROR_STOP=1
+      - -U
+      - postgres
+      - -h
+      - postgres
+      - -d
+      - aesaas
+      - -f
+      - /docker-entrypoint-initdb.d/01-init.sql
+    restart: "no"
   redis:
     image: redis:7-alpine
     ports:

@@ -1,0 +1,71 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-unit:
+    name: vitest unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/aesaas_test
+      REDIS_URL: redis://localhost:6379
+      ANTHROPIC_API_KEY: sk-ant-test-placeholder-key-1234567890
+      CREATOMATE_API_KEY: creato-test-placeholder-key-1234567890
+      BASIC_AUTH_USER: admin
+      BASIC_AUTH_PASS: changeme
+      TRIGGER_PROJECT_REF: proj_ci_test
+      TRIGGER_SECRET_KEY: trigger-ci-test-key-1234567890
+      TRIGGER_API_URL: http://trigger-web:3030
+      HUMAN_IN_LOOP_WEBHOOK_URL: ""
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: aesaas_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx tsc --noEmit
+        name: typecheck
+      - run: npm run lint
+        name: lint (next/core-web-vitals)
+      - run: npm test -- --reporter=verbose
+        name: vitest unit
+      - run: npx drizzle-kit migrate
+        name: drizzle apply migrations to test DB
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/aesaas_test
+      - run: npm run db:migrate
+        name: drizzle-kit generate diff
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/aesaas_test
+      - run: npm test -- tests/integration/
+        name: vitest integration (real DB)
