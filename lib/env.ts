@@ -8,6 +8,14 @@ export const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().min(10).optional(),
   OPENROUTER_BASE_URL: z.string().url().optional(),
   OPENROUTER_FALLBACK_MODEL: z.string().min(1).optional(),
+
+  // P0 POC: Creatomate SaaS + Azure TTS
+  CREATOMATE_API_KEY: z.string().min(10).optional(),
+  CREATOMATE_BASE_URL: z.string().url().optional(),
+  CREATOMATE_TEMPLATE_ID: z.string().min(1).optional(),
+  AZURE_SPEECH_KEY: z.string().min(10).optional(),
+  AZURE_SPEECH_REGION: z.string().min(1).optional(),
+  RUN_CREATOMATE_POC: z.enum(['0', '1']).default('0'),
   BASIC_AUTH_USER: z.string().min(1),
   BASIC_AUTH_PASS: z.string().min(1),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
