@@ -13,7 +13,18 @@ npm ci --omit=dev
 
 echo "🗜️  Creating tarball…"
 TAR="/tmp/auto-explainer-v$(date +%Y%m%d%H%M%S).tar.gz"
-tar czf "$TAR" --exclude=node_modules --exclude=.next --exclude=storage/jobs/* .
+# Explicitly exclude .env* — security. .gitignore 已控 git, 但 deploy.sh 从
+# working tree 读 (不含 git 状态), dev 机器 .env.local 含真 key (OPENROUTER_API_KEY
+# / HUMAN_IN_LOOP_WEBHOOK_URL 等) 会被打包 scp 给 VPS — 静默 leak.
+tar czf "$TAR" \
+  --exclude=node_modules \
+  --exclude=.next \
+  --exclude=storage/jobs/* \
+  --exclude=.env \
+  --exclude=.env.local \
+  --exclude='.env.local.*' \
+  --exclude='.env.*.bak' \
+  .
 
 echo "🚀 Uploading to VPS…"
 ssh "$VPS" "mkdir -p $APP_DIR/releases $APP_DIR/shared"
