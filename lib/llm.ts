@@ -18,6 +18,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { getEnv } from './env';
 import { withAnthropicFallback } from './llm-fallback';
+import { cachedPlan, cachedScript, detectLlmRole } from './llm-offline';
 
 // P2 OpenRouter fallback: in-memory sliding window for fallback rate limiting.
 // 进程内有效；HMR restart 会 reset state.
@@ -92,6 +93,10 @@ export async function getLlmClient(opts: { model?: string } = {}): Promise<LlmCl
 /**
  * 统一 LLM 调用：内部按 provider dispatch 到对应 SDK。
  * 返回 assistant 文本（不解析 JSON — caller 用 parseAssistantJson 自己做）。
+ *
+ * v0.6.1 R5: spec §4.3 LLM offline mode. 主路径 + fallback 全 fail → cached
+ * template 输出 (deterministic, 5-beat 模板). 不让 LLM provider 完全 down 时
+ * pipeline 100% fail.
  */
 export async function callLlm(opts: {
   system?: string;
@@ -102,32 +107,48 @@ export async function callLlm(opts: {
   const cfg = await resolveConfig({ model: opts.model });
   const { logger } = await import('./logger');
 
-  if (cfg.provider === 'anthropic') {
-    // v0.6.1 集成: spec §4.3 LLM auto-downgrade. anthropic 5xx/timeout 等
-    // infra 错误 (retry 3 次后仍 fail) → 自动切 OpenAI (GPT-4o). helper
-    // `withAnthropicFallback` (lib/llm-fallback.ts) 自 v0.5.2 commit `6d4e096`
-    // 落地, 集成代码现 wiring.
+  // 从 messages 提取 topic (user prompt 的第一段, 通常含 topic 字面)
+  const topic = extractTopic(opts.messages);
+
+  try {
+    if (cfg.provider === 'anthropic') {
+      return await withAnthropicFallback(
+        opts,
+        () => callAnthropic(cfg, opts, logger),
+        () => callOpenAIFallback(cfg, opts, logger),
+      );
+    }
+    if (cfg.provider === 'minimax') {
+      return await callMinimaxWithFallback(cfg, opts, logger);
+    }
+    return await callOpenAICompat(cfg, opts, logger);
+  } catch (lastErr) {
+    // v0.6.1 R5: spec §4.3 LLM offline mode (opt-in via env LLM_OFFLINE_FALLBACK=1).
     //
-    // 设计选择:
-    //   - 保留 callAnthropic 的 3-attempt 内部 retry (短 transient);
-    //   - withAnthropicFallback 在这层看到 retry 仍 fail 后的 err
-    //     → 5xx/timeout/429 触发 OpenAI fallback; 4xx logic 错误透传.
-    //   - OPENAI_API_KEY 缺失时 wrapper log warn + re-throw 原 anthropic
-    //     错 (不 silent fallback).
-    return withAnthropicFallback(
-      opts,
-      () => callAnthropic(cfg, opts, logger),
-      () => callOpenAIFallback(cfg, opts, logger),
+    // 默认 '0' = 强 throw 行为不变 — 'silent fallback' 是 UX 拐点 (用户不
+    // 知道 LLM 真 down). opt-in 开启后, all providers fail → log warn + 用
+    // 5-beat cached template 输出.
+    const env = getEnv();
+    if (env.LLM_OFFLINE_FALLBACK !== '1') {
+      throw lastErr;
+    }
+    const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+    const role = detectLlmRole(opts.system);
+    logger.warn(
+      { err: msg, topic, role, fallback: 'cached-template' },
+      'all LLM providers failed (LLM_OFFLINE_FALLBACK=1); using cached template (spec §4.3)',
     );
+    if (role === 'script') {
+      return cachedScript(topic, topic);
+    }
+    return cachedPlan(topic);
   }
-  if (cfg.provider === 'minimax') {
-    // MiniMax 不走 OpenAI SDK 包装：用户决策 (commit 后 notes)。MiniMax-M3 的 chat 实际是
-    // /v1/text/chatcompletion_v2 路径，OpenAI SDK 会拼 /v1/chat/completions → 路径错。
-    // 直接 fetch 到 MiniMax 自己的 endpoint，body 用 OpenAI-style messages。
-    // P2: 外层包 OpenRouter fallback (cap rate via in-memory sliding window).
-    return callMinimaxWithFallback(cfg, opts, logger);
-  }
-  return callOpenAICompat(cfg, opts, logger);
+}
+
+/** 从 messages 提取 topic (user 消息首条拼接, fallback 'Auto-Explainer'). */
+function extractTopic(messages: LlmMessage[]): string {
+  const userMsg = messages.find((m) => m.role === 'user');
+  return userMsg ? userMsg.content.slice(0, 200) : 'Auto-Explainer';
 }
 
 async function callAnthropic(

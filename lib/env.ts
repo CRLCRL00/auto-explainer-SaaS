@@ -43,6 +43,12 @@ export const envSchema = z.object({
   // dev mode 友好: 空字符串 = unset (no webhook configured).
   HUMAN_IN_LOOP_WEBHOOK_URL: z.string().url().optional().or(z.literal('')),
 
+  // v0.6.1 R5: spec §4.3 LLM offline mode. default '0' = 强 throw 行为不变
+  // (与 f81b1d2 LLM fallback 兼容). 设 '1' = 启 cached-template fallback —
+  // 所有 provider 抛 infra 错 + 都不通时用 5-beat template 输出. opt-in
+  // 因为 'silent fallback' 是 UX 拐点 — 默认让用户知道 LLM 真的 down.
+  LLM_OFFLINE_FALLBACK: z.enum(['0', '1']).default('0'),
+
   BASIC_AUTH_USER: z.string().min(1),
   BASIC_AUTH_PASS: z.string().min(1),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
