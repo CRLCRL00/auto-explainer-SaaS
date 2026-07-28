@@ -5,9 +5,11 @@ export const envSchema = z.object({
   REDIS_URL: z.string().url(),
   ANTHROPIC_API_KEY: z.string().min(10),
   // P2 OpenRouter fallback for minimax — leave OPENROUTER_API_KEY empty to disable fallback.
-  OPENROUTER_API_KEY: z.string().min(10).optional(),
-  OPENROUTER_BASE_URL: z.string().url().optional(),
-  OPENROUTER_FALLBACK_MODEL: z.string().min(1).optional(),
+  // P2 OpenRouter fallback for minimax — leave OPENROUTER_API_KEY empty to disable fallback.
+  // dev mode 友好: 空字符串 = unset (.optional + literal '').
+  OPENROUTER_API_KEY: z.string().min(10).optional().or(z.literal('')),
+  OPENROUTER_BASE_URL: z.string().url().optional().or(z.literal('')),
+  OPENROUTER_FALLBACK_MODEL: z.string().min(1).optional().or(z.literal('')),
 
   // P0 全量: Creatomate SaaS 是默认 render path. P0 POC 的 RUN_CREATOMATE_POC
   // flag 已废弃 — P0 全量 commit C2 删除 RUN_CREATOMATE_POC env schema 字段.
@@ -18,8 +20,9 @@ export const envSchema = z.object({
   CREATOMATE_POLL_MS: z.coerce.number().int().positive().default(3000),
   CREATOMATE_POLL_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
   // TTS 仍 optional —— 视频可不出配音. Azure Speech 真 key 部署侧 env 注入.
-  AZURE_SPEECH_KEY: z.string().min(10).optional(),
-  AZURE_SPEECH_REGION: z.string().min(1).optional(),
+  // dev mode 友好: 空字符串 = unset.
+  AZURE_SPEECH_KEY: z.string().min(10).optional().or(z.literal('')),
+  AZURE_SPEECH_REGION: z.string().min(1).optional().or(z.literal('')),
 
   // P1 PR1: Trigger.dev v4 self-hosted (introduced, NOT wired).
   // RUN_TRIGGER_DEV=0 default: behaviour identical to pre-PR1 (BullMQ still active).
@@ -33,7 +36,8 @@ export const envSchema = z.object({
   RUN_TRIGGER_DEV: z.enum(['0', '1']).default('1'),
 
   // v0.5.5: Human-in-Loop webhook URL (spec §4.4). 配了即撞墙时 POST 给 owner.
-  HUMAN_IN_LOOP_WEBHOOK_URL: z.string().url().optional(),
+  // dev mode 友好: 空字符串 = unset (no webhook configured).
+  HUMAN_IN_LOOP_WEBHOOK_URL: z.string().url().optional().or(z.literal('')),
 
   BASIC_AUTH_USER: z.string().min(1),
   BASIC_AUTH_PASS: z.string().min(1),
