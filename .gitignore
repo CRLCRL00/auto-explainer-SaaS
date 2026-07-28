@@ -15,3 +15,5 @@ test-results/
 playwright-report/
 .idea/
 .vscode/
+# Throwaway debug probe scripts (kept on disk for re-use, not committed)
+scripts/probe-*.ts
