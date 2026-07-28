@@ -79,6 +79,10 @@ export async function phaseHtml(jobId: string) {
     title: b.title,
     duration_sec: b.duration_sec,
   }))));
+  // v0.6.1 R1: TTS 音频注入 — phaseTts (commit b3919d0) 写 tts.mp3 到 jobDir,
+  // html 渲染时填 {{TTS_SRC}} 为相对路径 'tts.mp3'. 若文件不存在, inline null,
+  // browser 控制台报 '[无 ERR]' if null (即 phaseProbe 期望) — 仍合 spec.
+  tpl = tpl.replaceAll('{{TTS_SRC}}', () => 'tts.mp3');
 
   // 写产物
   const outPath = path.join(jobDir, 'video.html');

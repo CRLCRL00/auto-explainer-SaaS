@@ -51,6 +51,9 @@
 <body>
 {{BEATS}}
 
+<!-- v0.6.1 R1: TTS audio 注入. puppeteer recording 抓帧时 audio 也 capture (autoplay 但 puppeteer 默认无声轨, 真 audio track 走 Creatomate mux R2) -->
+<audio id="tts-voice" src="{{TTS_SRC}}" preload="auto"></audio>
+
 <script>
 const BEATS = {{BEATS_JSON}};
 let cur = -1;
