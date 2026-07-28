@@ -17,6 +17,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { getEnv } from './env';
+import { withAnthropicFallback } from './llm-fallback';
 
 // P2 OpenRouter fallback: in-memory sliding window for fallback rate limiting.
 // 进程内有效；HMR restart 会 reset state.
@@ -102,7 +103,22 @@ export async function callLlm(opts: {
   const { logger } = await import('./logger');
 
   if (cfg.provider === 'anthropic') {
-    return callAnthropic(cfg, opts, logger);
+    // v0.6.1 集成: spec §4.3 LLM auto-downgrade. anthropic 5xx/timeout 等
+    // infra 错误 (retry 3 次后仍 fail) → 自动切 OpenAI (GPT-4o). helper
+    // `withAnthropicFallback` (lib/llm-fallback.ts) 自 v0.5.2 commit `6d4e096`
+    // 落地, 集成代码现 wiring.
+    //
+    // 设计选择:
+    //   - 保留 callAnthropic 的 3-attempt 内部 retry (短 transient);
+    //   - withAnthropicFallback 在这层看到 retry 仍 fail 后的 err
+    //     → 5xx/timeout/429 触发 OpenAI fallback; 4xx logic 错误透传.
+    //   - OPENAI_API_KEY 缺失时 wrapper log warn + re-throw 原 anthropic
+    //     错 (不 silent fallback).
+    return withAnthropicFallback(
+      opts,
+      () => callAnthropic(cfg, opts, logger),
+      () => callOpenAIFallback(cfg, opts, logger),
+    );
   }
   if (cfg.provider === 'minimax') {
     // MiniMax 不走 OpenAI SDK 包装：用户决策 (commit 后 notes)。MiniMax-M3 的 chat 实际是
@@ -145,6 +161,68 @@ async function callAnthropic(
       logger.warn(
         { attempt, backoff, err: err instanceof Error ? err.message : String(err) },
         'anthropic retry',
+      );
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * v0.6.1: GPT-4o fallback (被 withAnthropicFallback 调用)
+ *
+ * Not for direct invocation. withAnthropicFallback 的 wrapper 已 check:
+ *   - err 是不是 infra (5xx/timeout/429)
+ *   - env.OPENAI_API_KEY non-empty
+ * 因此函数假设 apiKey 已配 + callOpenAIClient 能建. 配空 OPENAI_API_KEY 时
+ * wrapper 自己 re-throw, 不到这里.
+ *
+ * 用 OPENAI 直连, baseURL 默认 `https://api.openai.com/v1` (官方). 暂不开放
+ * override — 想用 DeepSeek / 通义 等 openai-compatible 替代 OpenAI 的, 走
+ * 切 provider 路径 (在 settings page 选 openai-compatible + baseURL).
+ *
+ * Model 硬编码 `gpt-4o` — spec §4.3 决策. 不从 cfg.model 借 (那是 anthropic 的).
+ */
+async function callOpenAIFallback(
+  cfg: ResolvedLlmConfig,
+  opts: { system?: string; messages: LlmMessage[]; maxTokens?: number },
+  logger: { warn: (obj: object, msg: string) => void },
+): Promise<string> {
+  const env = getEnv();
+  if (!env.OPENAI_API_KEY) {
+    // 与 withAnthropicFallback 守卫一致 (应已提前 throw). 防御性:
+    throw new Error('OPENAI_API_KEY not set — fallback unavailable');
+  }
+  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
+  if (opts.system) messages.push({ role: 'system', content: opts.system });
+  for (const m of opts.messages) messages.push(m);
+
+  let lastErr: unknown;
+  // withAnthropicFallback wrapper 只调这里一次. 这里再做 2-次 retry 给
+  // transient OpenAI 端 5xx 一个缓冲 (与 callAnthropic 内部 retry 精神
+  // 一致 — 但限制次数, 不无限).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await client.chat.completions.create({
+        model: 'gpt-4o',
+        max_tokens: opts.maxTokens ?? 4096,
+        messages,
+      });
+      const choice = res.choices[0];
+      if (!choice?.message?.content) throw new Error('empty completion');
+      return choice.message.content;
+    } catch (err: unknown) {
+      lastErr = err;
+      const status =
+        err && typeof err === 'object' && 'status' in err
+          ? (err as { status: unknown }).status
+          : undefined;
+      if (status && typeof status === 'number' && status >= 400 && status < 500 && status !== 429) break;
+      const backoff = Math.min(2 ** attempt * 1000, 4000);
+      logger.warn(
+        { attempt, backoff, err: err instanceof Error ? err.message : String(err) },
+        'openai-fallback retry',
       );
       await new Promise((r) => setTimeout(r, backoff));
     }
