@@ -52,15 +52,19 @@ export async function synthesizeToBuffer(opts: TtsOptions): Promise<ArrayBuffer>
       ) => void;
     }).speakTextAsync(
       opts.text,
-      (result: speechsdk.SpeechSynthesisResult) => {
+      (result) => {
         synthesizer.close();
-        // SpeechSynthesisResult.reason 是 SpeechSDK.ResultReason enum,
-        // 不是 plain string. 之前 inline \`{ reason: string }\` 把 enum 退化成
-        // string, TS2367 比较报错. 现在用 SDK 类型避免类型收缩.
-        if (result.reason === speechsdk.ResultReason.SynthesizingAudioCompleted) {
+        // callback 类型由上面 \`(synthesizer as unknown as {...})\` cast 定:
+        // \`r: { reason: string; audioData: ArrayBuffer; errorCode?; errorDetails? }\`.
+        // speechsdk.ResultReason 是 enum (numeric 或 string 值), TS 推 result.reason
+        // 为 string 后直接比较触 TS2367. 用 \`String()\` 把 enum runtime value 转 string
+        // 后相等比较 — 既关 TS 错, runtime 也语义正确 (ResultReason 自身是 string enum 时
+        // String() 等于本身).
+        const REASON_OK = String(speechsdk.ResultReason.SynthesizingAudioCompleted);
+        if (result.reason === REASON_OK) {
           resolve(result.audioData);
         } else {
-          reject(new Error(`TTS failed: ${result.errorCode} ${result.errorDetails ?? ''}`));
+          reject(new Error(`TTS failed: ${result.errorCode ?? ''} ${result.errorDetails ?? ''}`));
         }
       },
       (err) => {
