@@ -12,7 +12,7 @@ vi.mock('@/lib/logger', () => ({
 import { probeDurationSec, checkFinal, QGFailedError, ProbeError } from '@/lib/pipeline/qg-checks';
 
 describe('probeDurationSec (v0.5.4+)', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(async () => { vi.clearAllMocks(); });
 
   it('1. throws ProbeError when binary not found (ENOENT)', async () => {
     await expect(probeDurationSec('/dev/null', '/does/not/exist/ffprobe-binary'))

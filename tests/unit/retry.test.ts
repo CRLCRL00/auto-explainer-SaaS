@@ -7,7 +7,7 @@ vi.mock('@/lib/logger', () => ({
 import { runPhaseWithRetry, assertPipelineBudget, RetryWallHitError } from '@/lib/pipeline/retry';
 
 describe('runPhaseWithRetry (v0.5 retry + 撞墙)', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(async () => { vi.clearAllMocks(); });
 
   it('1. succeeds first attempt — fn returns, no retry', async () => {
     const fn = vi.fn().mockResolvedValue('ok');
@@ -69,7 +69,7 @@ describe('runPhaseWithRetry (v0.5 retry + 撞墙)', () => {
 });
 
 describe('assertPipelineBudget (wall-clock 整 pipeline 兜底)', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(async () => { vi.clearAllMocks(); });
 
   it('7. resolves within budget — no timeout', async () => {
     const fn = vi.fn().mockResolvedValue('within-budget');

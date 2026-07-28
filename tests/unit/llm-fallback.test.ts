@@ -52,7 +52,7 @@ describe('isInfrastructureError (v0.5.2)', () => {
 });
 
 describe('isOpenAIFallbackAvailable', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(async () => { vi.clearAllMocks(); });
 
   it('6. returns true when OPENAI_API_KEY set', () => {
     mockedGetEnv.mockReturnValue({ OPENAI_API_KEY: 'sk-test-1234567890' } as never);
@@ -66,7 +66,7 @@ describe('isOpenAIFallbackAvailable', () => {
 });
 
 describe('withAnthropicFallback', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(async () => { vi.clearAllMocks(); });
 
   it('8. anthropic success → returns anthropic result, does not call openai', async () => {
     mockedGetEnv.mockReturnValue({ OPENAI_API_KEY: 'sk-test-1234567890' } as never);

@@ -8,7 +8,7 @@ vi.mock('@/lib/logger', () => ({
 import { notifyHumanInLoop, buildHILPayload } from '@/lib/notify';
 
 describe('notifyHumanInLoop (v0.5.5)', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(async () => { vi.clearAllMocks(); });
 
   it('1. returns ok:false when webhook URL undefined (graceful skip)', async () => {
     const out = await notifyHumanInLoop(undefined, {
