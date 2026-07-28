@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { callLlm, parseAssistantJson } from '@/lib/llm';
 import { logger } from '@/lib/logger';
 import { safeRecordEvent } from '@/lib/job-events';
+import { checkScript as qgCheckScript } from '@/lib/pipeline/qg-checks-llm';
 import { BeatSchema, PlanSchema, planPathFor } from './outline';
 
 // ─────────────────────────────────────────────────────────────────
@@ -225,6 +226,29 @@ export async function phaseScript(jobId: string): Promise<void> {
     logger.warn({ jobId, drift }, 'script output drifted from plan');
     await safeRecordEvent(jobId, 'script_ready', 'script_plan_drift', { drift });
     throw new Error(`script output drifted from plan: ${drift}`);
+  }
+
+  // v0.6.1 集成 QG-script helper (lib/pipeline/qg-checks-llm.ts:checkScript):
+  //   - beats.length >= 3 (script schema 已 length(5) 兜了, 这里 double-check)
+  //   - 每 beat narration + caption 非空 (schema min(1) 也守了, double-check)
+  //   - 总字数 ≈ targetDurationSec × 3.5 中文字符/秒 ± 50% (CHINESE_CHARS_PER_SEC 常量).
+  //     PRD: 30s 视频 ≈ 105 字, ±52 字 (TTS 语速弹性).
+  // 失败 throw LLMQGFailedError('qg-script', ...) — pipeline retry helper 立即撞墙.
+  try {
+    const targetDurationSec = plan.beats.reduce((s, b) => s + b.duration_sec, 0);
+    qgCheckScript({
+      beats: scriptJson.beats.map((b) => ({ id: b.id, narration: b.narration, caption: b.caption })),
+      targetDurationSec,
+    });
+  } catch (err) {
+    logger.warn(
+      { jobId, err: err instanceof Error ? err.message : String(err) },
+      'script failed QG-script helper',
+    );
+    await safeRecordEvent(jobId, 'script_ready', 'qg_script_failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
   }
 
   // 4. 落盘 script.json（atomic write：tmp + rename）
