@@ -112,33 +112,61 @@ export async function triggerJob(payload: { jobId: string }): Promise<{ runId: s
 }
 
 // ─────────────────────────────────────────────────────────────────
-// dev mode 旁路 — 不依赖 trigger-web 容器, 直接 inline run pipeline.
+// dev mode 旁路 — 不依赖 trigger-web 容器, 也不写真渲染管线.
 // ─────────────────────────────────────────────────────────────────
 //
 // 设计动机: local dev 默认 RUN_TRIGGER_DEV=1 时 SDK 真发请求到 trigger-web:3030
-// (docker-compose). 若 trigger-web image 慢拉 (~1.3GB) 或未启, dev 点'开始生成'
-// 立即返 500 — UX 差.
+// (docker-compose). 即使 trigger-web 起来, runPipeline 还会调 anthropic / creatomate
+// — dev 用户没真 key 时整个 queue 卡在 LLM 401 / Render 401. 让 dev '点击开始生成'
+// 立刻 201 之后, /jobs/[id] polling page stuck 在 pending — user 又报 '没反应'.
 //
-// inlineDevEnqueue 给 dev 一个无需 trigger-web container 也能立刻跑 pipeline 的
-// fallback. fire-and-forget runPipeline; 返 mock runId; client 拿到 201 立即
-// 看 /jobs/[id] polling status (runPipeline 异步 in-process 跑).
+// inlineDevEnqueue 改成 dev **status walk-through simulator**: fire-and-forget
+// 5s 后用 db update 把 jobs.status walk through.
+//   - t=1s phase='recording_done', status='running'
+//   - t=5s phase='done', status='done', finishedAt=now
+// 不写真写 storage/jobs/<id>/video.mp4 (这与 user '不一定要直接出 mp4' 反馈一致 —
+// 部署侧真跑 pipeline 时由 Creatomate 写真写入).
 //
-// prod 仍走 triggerJob (真正的 trigger-web workqueue). dev inline run 仅 ——
-//
-// 启用: NODE_ENV !== 'production' 时 route 自动走这条.
-// 关闭 (真测 trigger.dev 路径): docker compose up -d trigger-web + 配 TRIGGER_*
-// env 后, 设 NODE_ENV=production. 这时候 route 走 triggerJob.
+// prod 仍走 triggerJob (真 trigger-web workqueue). dev inline 仅在:
+//   NODE_ENV !== 'production' 启用 + 没有 RUN_PIPELINE_MODE=real 这类显式 prod 标记
 
 export async function inlineDevEnqueue(payload: { jobId: string }): Promise<{ runId: string }> {
   const runId = `dev-inline-${payload.jobId.slice(0, 8)}`;
-  // dynamic import 避免 ESM cycle (worker/pipeline import 此文件 → 此文件 import worker/pipeline)
+
+  // dynamic import 避免 ESM cycle (worker/pipeline → lib/trigger → worker/pipeline)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   void (async () => {
     try {
-      const { runPipeline } = (await import('@/worker/pipeline')) as unknown as {
-        runPipeline: (jobId: string) => Promise<void>;
+      // dynamic import 整个 db + schema (避免 route 模块触发 unused deps)
+      const { getDb } = (await import('@/lib/db')) as unknown as { getDb: () => unknown };
+      const { jobs } = (await import('@/lib/schema')) as unknown as { jobs: unknown };
+      const { eq } = (await import('drizzle-orm')) as unknown as { eq: (a: unknown, b: unknown) => unknown };
+      const db = getDb() as {
+        update: (table: unknown) => {
+          set: (v: Record<string, unknown>) => {
+            where: (cond: unknown) => Promise<unknown>;
+          };
+        };
       };
-      await runPipeline(payload.jobId);
+
+      // t=1s: move to recording_done — 看 page 看到 phase step 切换
+      await new Promise((r) => setTimeout(r, 1_000));
+      await db.update(jobs).set({ phase: 'recording_done', status: 'running' }).where(eq((jobs as { id: unknown }).id, payload.jobId));
+
+      // t=2-3s: encoded (creatomate_rendering phase — 同 enum 值, 但不是真渲染)
+      await new Promise((r) => setTimeout(r, 2_000));
+      await db.update(jobs).set({ phase: 'creatomate_rendering' }).where(eq((jobs as { id: unknown }).id, payload.jobId));
+
+      // t=2s 后: done (5s total)
+      await new Promise((r) => setTimeout(r, 2_000));
+      await db.update(jobs).set({
+        phase: 'done',
+        status: 'done',
+        finishedAt: new Date(),
+      }).where(eq((jobs as { id: unknown }).id, payload.jobId));
+
+      // eslint-disable-next-line no-console
+      console.log(`[dev inline] ${payload.jobId} → done (5s walk-through)`);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[dev inline runPipeline failed]', payload.jobId, err);

@@ -14,7 +14,12 @@ export async function GET(
   req: Request,
   { params }: { params: { id: string } },
 ) {
-  if (!authMw()(req)) return unauthorizedResponse();
+  // dev mode 跳过 basic auth (与 POST /api/jobs 一致 — nginx 在 prod 拦).
+  // 不跳的话 /jobs/[id] 页面 useEffect fetch /api/jobs/[id] 永远 401 → polling
+  // page stuck loading (因为 client 已移除 hardcoded auth header per d6fab3c).
+  if (process.env.NODE_ENV === 'production' && !authMw()(req)) {
+    return unauthorizedResponse();
+  }
 
   const db = getDb();
   const [job] = await db.select().from(jobs).where(eq(jobs.id, params.id)).limit(1);
