@@ -106,3 +106,83 @@ export async function synthesizeToBufferWithFallback(opts: TtsOptions): Promise<
       }),
   );
 }
+
+/**
+ * v0.6.1 phaseTts phase entry — pipeline.ts:PHASE_ORDER 在 html_ready 之后插入.
+ *
+ * 读 storage/jobs/{id}/script.json → combine 5-beat narration 拼成 single text
+ * (Azure TTS 多段独立调 vs Edge single text — single text 更便宜 + 时序更紧凑)
+ * → synthesizeToBufferWithFallback → 写 storage/jobs/{id}/tts.mp3 + job_artifacts.
+ *
+ * 设计选择:
+ *   - 用 fallback wrapper (Azure 主, Edge 备). 配置错 (env 缺 / key) 透传 → phase
+ *     retry helper 撞墙 (因配置 retry 没救; 是 'wall hit' 类型).
+ *   - 单段 mp3 (不每 beat 一段) — 简化 mp4 嵌入流程. 未来要 per-beat 时长对齐可分.
+ *   - voice 固定 'zh-CN-XiaoxiaoNeural' (Azure 默认) / Edge 自动 fallback 用
+ *     'zh-CN-XiaoyiNeural' 同风格. 暂不开放 settings page 选 voice.
+ */
+import { eq } from 'drizzle-orm';
+import path from 'node:path';
+import { promises as fs } from 'node:fs';
+import { getDb } from '@/lib/db';
+import { jobs, jobArtifacts } from '@/lib/schema';
+import { safeRecordEvent } from '@/lib/job-events';
+import { logger } from '@/lib/logger';
+
+export async function phaseTts(jobId: string): Promise<void> {
+  const db = getDb();
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+  if (!job) throw new Error(`job ${jobId} not found`);
+
+  const jobDir = path.join(process.cwd(), 'storage', 'jobs', jobId);
+  const scriptPath = path.join(jobDir, 'script.json');
+  const raw = await fs.readFile(scriptPath, 'utf8');
+  const script = JSON.parse(raw) as {
+    beats: Array<{ id: string; narration: string }>;
+  };
+
+  // 5-beat narration 拼一段 — Azure TTS 多段 vs Edge single-text 的统一策略
+  const combinedText = script.beats
+    .map((b) => b.narration.trim())
+    .filter(Boolean)
+    .join('\n');
+  if (combinedText.length === 0) {
+    throw new Error(`script.json for ${jobId} has empty narration across all beats`);
+  }
+
+  logger.info(
+    {
+      jobId,
+      narrations: script.beats.length,
+      textLen: combinedText.length,
+    },
+    'tts phase starting',
+  );
+
+  const audioBuffer = await synthesizeToBufferWithFallback({
+    text: combinedText,
+    outputFormat: 'mp3',
+  });
+
+  const outPath = path.join(jobDir, 'tts.mp3');
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  await fs.writeFile(outPath, Buffer.from(audioBuffer));
+
+  await db.insert(jobArtifacts).values({
+    jobId,
+    kind: 'tts',
+    storagePath: outPath,
+    sizeBytes: audioBuffer.byteLength,
+  });
+
+  await safeRecordEvent(jobId, 'tts_caption', 'tts_persisted', {
+    textLen: combinedText.length,
+    audioBytes: audioBuffer.byteLength,
+    outPath,
+  });
+
+  logger.info(
+    { jobId, audioBytes: audioBuffer.byteLength, outPath },
+    'tts persisted',
+  );
+}

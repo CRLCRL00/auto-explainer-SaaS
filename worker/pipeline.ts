@@ -18,6 +18,7 @@ import { phaseOutline } from './phases/outline';
 import { phaseScript } from './phases/script';
 import { phaseQgPlan } from './phases/qg-plan';
 import { phaseHtml } from './phases/html';
+import { phaseTts } from './phases/tts';
 import { phaseProbe } from './phases/probe';
 import { phaseRecord } from './phases/record';
 import { phaseEncodeCreatomate } from './phases/encode-creatomate';
@@ -45,6 +46,7 @@ const PHASE_ORDER: PipelineStep[] = [
   { name: 'planning_qg', run: phaseQgPlan },
   { name: 'script_ready', run: phaseScript },
   { name: 'html_ready', run: phaseHtml },
+  { name: 'tts_caption', run: phaseTts },
   { name: 'probing', run: phaseProbe },
   { name: 'recording_done', run: phaseRecord },
   { name: 'creatomate_rendering', run: phaseEncodeCreatomate },

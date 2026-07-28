@@ -115,4 +115,4 @@ describe('synthesizeToBuffer (Azure TTS, P0 POC)', () => {
   });
 });
 
-import { synthesizeToBuffer } from '@/worker/phases/tts-azure';
+import { synthesizeToBuffer } from '@/worker/phases/tts';

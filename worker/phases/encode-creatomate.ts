@@ -29,7 +29,7 @@ import { getDb } from '@/lib/db';
 import { jobArtifacts, jobs } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
 import { safeRecordEvent, CreatomateEvents } from '@/lib/job-events';
-import { synthesizeToBuffer } from './tts-azure';
+import { synthesizeToBuffer } from './tts';
 
 export const DEFAULT_OUTPUT_WIDTH = 1080;
 export const DEFAULT_OUTPUT_HEIGHT = 1920;
