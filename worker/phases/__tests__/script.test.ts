@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -98,7 +98,10 @@ const VALID_SCRIPT = {
 // ───────────────────────────────────────────────────────────────
 
 let tmpDir: string;
-let cwdSpy: ReturnType<typeof vi.spyOn>;
+// 同 outline.test.ts: 用 MockInstance (无 generic) 而非 ReturnType<typeof
+// vi.spyOn>, 因链式 mockReturnValue 让返回类型窄到 MockInstance<[], string>,
+// 与默认 MockInstance<unknown[], unknown> 不 assignable.
+let cwdSpy: MockInstance;
 let dbCalls: { inserts: unknown[] };
 
 beforeEach(async () => {

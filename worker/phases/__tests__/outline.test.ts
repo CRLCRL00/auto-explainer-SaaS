@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -105,7 +105,11 @@ const SHORT_PLAN = {
 // ───────────────────────────────────────────────────────────────
 
 let tmpDir: string;
-let cwdSpy: ReturnType<typeof vi.spyOn>;
+// MockInstance<unknown[], unknown> 默认与 `vi.spyOn(...).mockReturnValue(tmpDir)`
+// 返回的 generic MockInstance<[], string> 不 assignable — ts 报 TS2322. Use
+// MockInstance without generic params for declaration; \`mockRestore\` 等方法
+// 仍可用. 测试只需调用 cwdSpy.mockRestore() 一次, 不深入类型.
+let cwdSpy: MockInstance;
 let dbCalls: { inserts: unknown[]; updates: unknown[] };
 
 beforeEach(async () => {
