@@ -322,7 +322,7 @@ npx trigger.dev dev
 
 ## 11. 升级路径
 
-`package.json` 当前 version `0.5.5`. 升级时:
+`package.json` 当前 version `0.6.0`. 升级时:
 1. pull 仓库
 2. `npm ci` (lockfile 同步)
 3. `npm run db:migrate` (apply 新 migration)
