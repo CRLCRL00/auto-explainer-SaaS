@@ -1,0 +1,53 @@
+# Docker context excludes (keeps Docker build cache small + image small).
+#
+# Match .gitignore style: 文件 / dir 模式. 复制不必要的东西进 build context
+# 只让 image 大 + build slow.
+
+# Node / Next.js build artifacts
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Tests (CI 服务, runtime 不需)
+tests/
+
+# Docs (部署侧无需)
+docs/
+
+# Local dev files
+.env*.local
+.env
+!.env.example
+
+# Storage (data volume, 不进 image)
+storage/
+!storage/.gitkeep
+
+# Git / IDE / OS noise
+.git/
+.gitignore
+.gitattributes
+
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Docker artifact (avoid recursion — Dockerfile 在 root, 但 dockerignore 仍不
+# 引 self)
+Dockerfile
+.dockerignore
+
+# Build output / Test output
+coverage/
+test-results/
+playwright-report/
+
+# Backup / scratch
+*.log
+*.bak
+*.tmp
+.env.local.bak.*
