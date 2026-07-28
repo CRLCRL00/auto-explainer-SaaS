@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { chromium, type Browser } from 'playwright';
 import fs from 'fs/promises';
 import path from 'path';
 import { eq } from 'drizzle-orm';
@@ -29,13 +29,22 @@ export async function phaseProbe(jobId: string) {
     }
   }
 
-  // 2. 真实浏览器探针（headless）— try/finally 强保证 browser.close 防漏 Chromium 进程
+  // 2. 真实浏览器探针（headless）— v0.6.1 R4 spec §4.3 Chrome auto-downgrade:
+  //
+  //    Level 1: 系统 Chrome (CHROME_PATH env or Windows default)
+  //    Level 2: Playwright 自带 chromium (npx playwright install 装的)
+  //    Level 3: 都失败 → log warn + 跳过 (best-effort, 不撞墙)
+  //
+  //    之前: 系统 Chrome 不在就 throw hard. 现在: graceful degrade.
   logger.info({ jobId }, 'probe starting');
-  const browser = await chromium.launch({
-    headless: true,
-    executablePath: process.env.CHROME_PATH ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe',
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
-  });
+  const browser = await launchChromeWithFallback(jobId);
+  if (!browser) {
+    logger.warn(
+      { jobId },
+      'all chromium sources failed; skipping live probe (best-effort: phaseProbe is non-blocking)',
+    );
+    return;
+  }
   try {
     const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
     const page = await ctx.newPage();
@@ -66,4 +75,48 @@ export async function phaseProbe(jobId: string) {
   } finally {
     await browser.close();
   }
+}
+
+/**
+ * v0.6.1 R4: Chrome auto-downgrade (spec §4.3).
+ *
+ * 3-tier:
+ *   1. 系统 Chrome (CHROME_PATH env or Win default 'C:/Program Files/.../chrome.exe')
+ *   2. Playwright bundled chromium (随 npm install 装的, 不需 executablePath)
+ *   3. 都失败 → 返回 null (caller 跳过 live probe, best-effort)
+ *
+ * 之前: 系统 Chrome 不在 -> chromium.launch throw, phaseProbe throw → pipeline fail.
+ *       现在: graceful degrade.
+ */
+async function launchChromeWithFallback(jobId: string): Promise<Browser | null> {
+  const launchArgs = ['--no-sandbox', '--disable-dev-shm-usage'] as const;
+
+  // Level 1 — 系统 Chrome
+  try {
+    return await chromium.launch({
+      headless: true,
+      executablePath: process.env.CHROME_PATH ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+      args: [...launchArgs],
+    });
+  } catch (level1Err) {
+    logger.warn(
+      { jobId, err: level1Err instanceof Error ? level1Err.message : String(level1Err) },
+      'chrome Level 1 (system) failed → fallback to Playwright bundled',
+    );
+  }
+
+  // Level 2 — Playwright bundled chromium (无 executablePath → 用 @playwright/browser-chromium)
+  try {
+    return await chromium.launch({
+      headless: true,
+      args: [...launchArgs],
+    });
+  } catch (level2Err) {
+    logger.warn(
+      { jobId, err: level2Err instanceof Error ? level2Err.message : String(level2Err) },
+      'chrome Level 2 (bundled) also failed → all sources exhausted',
+    );
+  }
+
+  return null;
 }
