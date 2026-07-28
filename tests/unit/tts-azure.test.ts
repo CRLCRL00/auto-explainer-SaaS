@@ -1,6 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/lib/env', () => ({ getEnv: vi.fn() }));
+// vi.hoisted: lib/tts-fallback.ts (已引入 worker/phases/tts-azure.ts 经
+// synthesizeToBufferWithFallback) import logger; logger module-level `const env
+// = getEnv()` 在 import 时立刻跑 — 必须在 mock factory 里有 default env.
+const hoisted = vi.hoisted(() => ({
+  DEFAULT_TEST_ENV: {
+    DATABASE_URL: 'postgres://test@127.0.0.1:5432/test',
+    REDIS_URL: 'redis://127.0.0.1:6379',
+    ANTHROPIC_API_KEY: 'sk-ant-env-fallback-1234567890',
+    CREATOMATE_API_KEY: 'creato-test-key-1234567890',
+    CREATOMATE_TEMPLATE_ID: 'creatomate-builtin-30s-5beats',
+    CREATOMATE_POLL_MS: 3000,
+    CREATOMATE_POLL_TIMEOUT_MS: 600000,
+    BASIC_AUTH_USER: 'admin',
+    BASIC_AUTH_PASS: 'changeme',
+    NODE_ENV: 'test',
+    LOG_LEVEL: 'info',
+    TRIGGER_DEPLOYMENT: 'self-hosted',
+    RUN_TRIGGER_DEV: '0',
+  },
+}));
+
+vi.mock('@/lib/env', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/env')>('@/lib/env');
+  return {
+    ...actual,
+    getEnv: vi.fn().mockReturnValue(hoisted.DEFAULT_TEST_ENV),
+  };
+});
 
 // mock 整个 SDK；factory hoist 后在 first-import 时 evaluate
 vi.mock('microsoft-cognitiveservices-speech-sdk', () => {

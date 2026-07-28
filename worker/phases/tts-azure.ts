@@ -11,6 +11,8 @@
 
 import * as speechsdk from 'microsoft-cognitiveservices-speech-sdk';
 import { getEnv } from '@/lib/env';
+import { synthesizeEdge } from '@/lib/tts-edge';
+import { withTtsFallback } from '@/lib/tts-fallback';
 
 export interface TtsOptions {
   text: string;
@@ -64,7 +66,7 @@ export async function synthesizeToBuffer(opts: TtsOptions): Promise<ArrayBuffer>
         if (result.reason === REASON_OK) {
           resolve(result.audioData);
         } else {
-          reject(new Error(`TTS failed: ${result.errorCode ?? ''} ${result.errorDetails ?? ''}`));
+          reject(new Error(`TTS failed: ${result.reason} ${result.errorCode ?? ''} ${result.errorDetails ?? ''}`));
         }
       },
       (err) => {
@@ -73,4 +75,34 @@ export async function synthesizeToBuffer(opts: TtsOptions): Promise<ArrayBuffer>
       },
     );
   });
+}
+
+/**
+ * v0.6.1 Azure TTS + Edge fallback: spec §4.3 TTS 段. synth 上层
+ * 用 try Azure → 5xx / quota / region outage 时回退 Edge TTS.
+ *
+ * 配置错 (env 缺 / key 无效) 透传原 error, 不静默 fallback
+ * (wrapper 内部 log warn — 参见 lib/tts-fallback.ts:isAzureConfigError).
+ *
+ * Edge TTS 输出 mp3 (audio-24khz-48kbitrate-mono-mp3) — 与 Azure mp3 同.
+ * voice 映射: Azure 'zh-CN-XiaoxiaoNeural' → Edge 'zh-CN-XiaoyiNeural' (风格 female
+ * young 同; Edge 没 'Xiaoxiao').
+ */
+export async function synthesizeToBufferWithFallback(opts: TtsOptions): Promise<ArrayBuffer> {
+  // Edge voice mapping (Azure 用的 Xiaoxiao Neural Edge 没, 用 Xiaoyi 同风格)
+  const edgeVoice =
+    opts.voice === 'zh-CN-XiaoxiaoNeural'
+      ? 'zh-CN-XiaoyiNeural'
+      : (opts.voice ?? 'zh-CN-XiaoyiNeural');
+
+  return withTtsFallback(
+    opts,
+    () => synthesizeToBuffer(opts),
+    () =>
+      synthesizeEdge({
+        text: opts.text,
+        voice: edgeVoice,
+        ...(opts.outputFormat ? { outputFormat: 'audio-24khz-48kbitrate-mono-mp3' as const } : {}),
+      }),
+  );
 }
