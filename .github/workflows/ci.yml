@@ -57,6 +57,12 @@ jobs:
         name: typecheck
       - run: npm run lint
         name: lint (next/core-web-vitals)
+      # P1 audit W2: 之前 CI 只跑 tsc + lint + vitest, 不跑 `next build`.
+      # production 部署时 `next start` 才验证 build, 部署完可能 500 但 CI green.
+      # 这里加 `npm run build` 作为 prod build 烟测 — 失败早 fail, 防止
+      # 'CI 全过, prod 起不来' 的经典死角.
+      - run: npm run build
+        name: next build (prod smoke)
       - run: npm test -- --reporter=verbose
         name: vitest unit
       - run: npx drizzle-kit migrate
