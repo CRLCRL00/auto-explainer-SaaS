@@ -14,10 +14,13 @@ import { task } from '@trigger.dev/sdk/v3';
 
 export const processVideoJob = task({
   id: 'process-video-job',
-  // SDK v3 task payload schema (typed at the callsite in lib/trigger.ts).
-  // SDK v3 第二个参数是 ctx object 本身 (含 ctx.run / ctx.attempt / ctx.signal),
-  // 不要再解构成 { ctx } — 否则 ctx 取到 undefined.
-  run: async (payload: { jobId: string; phase?: string }, ctx) => {
+  // @trigger.dev/sdk v4.5 第二个参数是 task context wrapper object — 必须
+  // 解构 `{ ctx }` 才能拿到 `ctx.run`. 之前评论说 'SDK v3 直接 ctx' 不再适用
+  // v4 (v4 把 ctx 包装一层了). 见 lib/trigger.ts triggerJob() 同样模式.
+  run: async (
+    payload: { jobId: string; phase?: string },
+    { ctx },
+  ) => {
     logger.info(
       { jobId: payload.jobId, runId: ctx.run.id },
       'trigger.dev task started: process-video-job',
@@ -30,7 +33,7 @@ export const processVideoJob = task({
       );
       return { ok: true, jobId: payload.jobId };
     } catch (err) {
-      // SDK v3 task 失败 = trigger.dev dashboard 标 failed run
+      // SDK v4 task 失败 = trigger.dev dashboard 标 failed run
       const message = err instanceof Error ? err.message : String(err);
       logger.error(
         { jobId: payload.jobId, runId: ctx.run.id, err: message },
