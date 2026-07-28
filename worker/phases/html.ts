@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { jobs } from '@/lib/schema';
 import { logger } from '@/lib/logger';
+import { checkHtml as qgCheckHtml } from '@/lib/pipeline/qg-checks-llm';
 
 /**
  * phaseHtml — 模板渲染 + selector 注入。
@@ -82,6 +83,28 @@ export async function phaseHtml(jobId: string) {
   // 写产物
   const outPath = path.join(jobDir, 'video.html');
   await fs.writeFile(outPath, tpl, 'utf8');
+
+  // v0.6.1 集成 QG-html helper (lib/pipeline/qg-checks-llm.ts:checkHtml):
+  //   - html 非空
+  //   - 至少一个 beat container (`id="beat-"` 模式 — 当前 beat5-30s 模板每个
+  //     beat 用 class="beat"; 后续模板可改 id="beat-N", 此处保持 pattern 通用.
+  //   - 现行 only-one-template constraint 由 phaseProbe.ts 真跑 console / DOM
+  //     check 断言 (CG-render), checkHtml 仅 schema-level trigger 在 html 完成时
+  // 失败 throw LLMQGFailedError('qg-html', ...) — html ready phase retry helper
+  // 立即撞墙.
+  try {
+    qgCheckHtml({
+      html: tpl,
+      beatContainerIdPattern: 'class="beat"',
+    });
+  } catch (err) {
+    logger.warn(
+      { jobId, err: err instanceof Error ? err.message : String(err) },
+      'html failed QG-html helper',
+    );
+    throw err;
+  }
+
   await db.insert((await import('@/lib/schema')).jobArtifacts).values({
     jobId, kind: 'html', storagePath: outPath,
   });
