@@ -10,6 +10,10 @@ export const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().min(10).optional().or(z.literal('')),
   OPENROUTER_BASE_URL: z.string().url().optional().or(z.literal('')),
   OPENROUTER_FALLBACK_MODEL: z.string().min(1).optional().or(z.literal('')),
+  // v0.5.2 anthropic fallback (spec §4.3): 配 OPENAI_API_KEY 后, anthropic 5xx
+  // infra 错误自动切 GPT-4o. 留空 = 不启用 fallback (现状不变).
+  // dev mode 友好: 空字符串 = unset. 同 OPENROUTER_* pattern.
+  OPENAI_API_KEY: z.string().min(10).optional().or(z.literal('')),
 
   // P0 全量: Creatomate SaaS 是默认 render path. P0 POC 的 RUN_CREATOMATE_POC
   // flag 已废弃 — P0 全量 commit C2 删除 RUN_CREATOMATE_POC env schema 字段.

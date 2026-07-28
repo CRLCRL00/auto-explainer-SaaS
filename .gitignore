@@ -11,6 +11,7 @@ storage/*.json
 .DS_Store
 coverage/
 .tsbuildinfo
+tsconfig.tsbuildinfo
 test-results/
 playwright-report/
 .idea/
