@@ -39,8 +39,10 @@ describe('processVideoJob (Trigger.dev v3 task handler)', () => {
 
   it('2. run() invokes runPipeline with payload.jobId and returns { ok, jobId }', async () => {
     mockedRunPipeline.mockResolvedValue(undefined);
+    // SDK v4.5 第二个参数是 { ctx, ... } wrapper — 之前 raw ctx 已不 match.
+    // 之前 commit 8f18473 同步改 trigger/jobs.ts 适配新 signature.
     const ctx = { run: { id: 'r-abc-1' } };
-    const result = await refs.taskConfig!.run({ jobId: 'job-1' }, ctx);
+    const result = await refs.taskConfig!.run({ jobId: 'job-1' }, { ctx });
     expect(mockedRunPipeline).toHaveBeenCalledWith('job-1');
     expect(result).toEqual({ ok: true, jobId: 'job-1' });
   });
@@ -48,6 +50,6 @@ describe('processVideoJob (Trigger.dev v3 task handler)', () => {
   it('3. run() rethrows when runPipeline rejects (SDK marks run as failed)', async () => {
     mockedRunPipeline.mockRejectedValue(new Error('pipeline blew up'));
     const ctx = { run: { id: 'r-abc-2' } };
-    await expect(refs.taskConfig!.run({ jobId: 'job-2' }, ctx)).rejects.toThrow('pipeline blew up');
+    await expect(refs.taskConfig!.run({ jobId: 'job-2' }, { ctx })).rejects.toThrow('pipeline blew up');
   });
 });
