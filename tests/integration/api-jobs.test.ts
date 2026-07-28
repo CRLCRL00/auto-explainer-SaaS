@@ -20,7 +20,10 @@ vi.mock('@/lib/trigger', () => ({
 beforeAll(() => {
   // 强制 production 模式: 集成测试要跑完整 auth 路径; 这与 dev mode (skipped) 是不同分
   // 支, 需要 resetModules 让 route.ts 在 NODE_ENV=production 下重新 evaluate.
-  process.env.NODE_ENV = 'production';
+  // ts note: @types/node 把 NODE_ENV 标 readonly literal — 不能直接赋 'production'.
+  // workaround: Object.assign 把新的 key: value 当 property 写进 process.env.
+  // (mutate 后 typeof 仍 string, 之后 resetModules 让依赖 NODE_ENV 的 module 重新读)
+  Object.assign(process.env, { NODE_ENV: 'production' });
   vi.resetModules();
 
   // set envs that getEnv() will read; otherwise tests will fail when
