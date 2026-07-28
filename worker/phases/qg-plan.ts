@@ -14,6 +14,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { jobEvents, jobs } from '@/lib/schema';
 import { logger } from '@/lib/logger';
+import { checkPlan } from '@/lib/pipeline/qg-checks-llm';
 import { BeatSchema, PlanSchema, planPathFor } from './outline';
 
 /** QG-plan 阈值：beats 总和上限（秒）。worker 单帧 30s，5 beats 30s/beat 上限是 150s，但当前模板 beat5-30s 是 5×6s=30s；给 60s 留后续 60s 模板的空间。 */
@@ -102,6 +103,27 @@ export async function phaseQgPlan(jobId: string): Promise<void> {
       'plan_beat_zero_duration',
       'one or more beats have non-positive duration_sec',
       zeroBeats,
+    );
+  }
+
+  // v0.6.1 集成 spec §4.2 QG-plan helper (lib/pipeline/qg-checks-llm.ts:checkPlan):
+  //   - 总 duration ∑ = targetDurationSec ± 2s
+  //   - 全部 beat.title 非空
+  //   - throws LLMQGFailedError('qg-plan', ...) — retry helper 立即撞墙 (撞墙拐点
+  //     传上去, owner 看红后做 'reverse-or-replace' 决策, 与 spec §4.2 + §4.4 一致).
+  // local structural check (上方) 已验 beats.length===5 + duration 总和 ≤60.
+  // 这里 checkPlan 补 +按 PRD 严格约束: 3-12 beats + 总时长 = target ± 2s + title 非空.
+  // 双重验证, 一处 fail 立刻撞墙.
+  try {
+    checkPlan({
+      beats: plan.beats.map((b) => ({ id: b.id, title: b.title, duration_sec: b.duration_sec })),
+      targetDurationSec: total,
+    });
+  } catch (err) {
+    throw new QgPlanError(
+      'plan_helper_failed',
+      err instanceof Error ? err.message : String(err),
+      err,
     );
   }
 

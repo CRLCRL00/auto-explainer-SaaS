@@ -28,7 +28,8 @@ export class LLMQGFailedError extends Error {
 // QG-plan: 验证 OutlinePlanner 输出 schema + 完整性
 // ─────────────────────────────────────────────────────────────────
 export interface PlanQGInput {
-  beats: Array<{ id: number; title: string; duration_sec: number }>;
+  // beats[].id: project 用 string ('b1', 'b2' ...); 数字也接受 (用 | 兼容). 仅在错误信息里 format.
+  beats: Array<{ id: string | number; title: string; duration_sec: number }>;
   targetDurationSec: number;
 }
 
@@ -65,7 +66,7 @@ export function checkPlan(i: PlanQGInput): void {
 // QG-script: 验证 ScriptWriter 输出 (字数 ≈ 时长 × 字速)
 // ─────────────────────────────────────────────────────────────────
 export interface ScriptQGInput {
-  beats: Array<{ id: number; narration: string; caption: string }>;
+  beats: Array<{ id: string | number; narration: string; caption: string }>;
   targetDurationSec: number;
 }
 
