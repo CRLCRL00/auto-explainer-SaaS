@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { LlmSettings } from '@/lib/llm-settings';
 
 let tmpDir: string;
 let settingsPath: string;
@@ -34,7 +35,7 @@ vi.mock('@/lib/llm-settings', async () => {
     ...actual,
     DEFAULT_SETTINGS_PATH: settingsPath,
     readLlmSettings: async (filePath: string = settingsPath) => actual.readLlmSettings(filePath),
-    writeLlmSettings: async (settings: typeof actual.LlmSettings.prototype, filePath: string = settingsPath, opts?: { merge?: boolean }) => {
+    writeLlmSettings: async (settings: LlmSettings, filePath: string = settingsPath, opts?: { merge?: boolean }) => {
       return actual.writeLlmSettings(settings, filePath, opts);
     },
     clearLlmSettings: async (filePath: string = settingsPath) => actual.clearLlmSettings(filePath),
