@@ -84,11 +84,33 @@ TRIGGER_DEPLOYMENT=cloud
 EOF
 
 echo "✅ .env.local 已生成 (含 schema-valid placeholder)."
+
+# === Apply pending drizzle migrations to dev DB ===
+# Why: lib/trigger.ts inlineDevEnqueue walks jobs.phase through
+#   'recording_done' → 'creatomate_rendering' → 'done'. 'creatomate_rendering'
+#   was added in drizzle/0005_phase_creatomate_rendering.sql — without it the
+#   status walk-through fails with 'invalid input syntax for type phase'.
+if command -v psql >/dev/null 2>&1; then
+  for sql in \
+    drizzle/0005_phase_creatomate_rendering.sql \
+    drizzle/0006_human_in_loop_reason.sql; do
+    if [ -f "$sql" ]; then
+      # IF NOT EXISTS 在 migration 顶部; 一些 ALTER 不支持 IF NOT EXISTS 但 schema 写时已处理.
+      # 不让 psql exit on error (e.g. column already exists) — 用 OR true.
+      PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d aesaas -v ON_ERROR_STOP=0 \
+        -f "$sql" >/dev/null 2>&1 && echo "  ✅ applied $sql" || echo "  ⚠️ $sql skipped (idempotent or pg not running)"
+    fi
+  done
+else
+  echo "  (psql not in PATH — skip migration; user must run \`npm run db:migrate\` manually)"
+fi
+
 echo ""
 echo "下一步:"
 echo "  1. npm run dev"
 echo "  2. 浏览器 → http://localhost:3000"
 echo "  3. 填 topic → 点开始生成 (server 启动 OK + auto-redirect 立即跳 polling 页)"
+echo "  4. /jobs/<id> 页面 5 秒内 phase walk-through: pending → recording_done → creatomate_rendering → done"
 echo ""
 echo "⚠️ 注意: dev 跑 pipeline 需要真 ANTHROPIC_API_KEY + CREATOMATE_API_KEY."
 echo "  placeholder 'sk-ant-...' 会让 LLM real call 401. 真跑视频需要 user 提供"
