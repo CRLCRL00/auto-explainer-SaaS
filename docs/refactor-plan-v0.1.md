@@ -172,8 +172,71 @@ plan 写于 4 调研 + 决策当天；之后 5 个 commit (`9248393` `1cac05b` `
 | §4.4 HIL webhook notify + jobs.human_in_loop_reason | ✅ 骨架落地 (HTTP webhook) | `d13d4fe` |
 | §4.4 Web UI dashboard (React + SSE) | ❌ 未实施 (留 v0.6+) | — |
 
-### Plan §9 引用更新
+### Plan §9 引用更新 (v0.5 时代)
 
 - 完整实施轨迹 → `git log --oneline` (17 commits: 10 计划内 + 1 multi-frame + 5 v0.5 + 1 chore audit D1)
 - 测试: 194/194 unit + integration 全过
 - 部署 readiness: 见 audit report commit `5a44957`
+
+---
+
+## v0.6.0 follow-up (deployment audit + TS-error cleanup + preventive hardening) — 2026-07-28 落地
+
+v0.5 落地后 1 天, 启动 3-round audit (driven by user "查一下看部署完不完善"). 这一轮**不是 spec §4 新功能**, 是把现有代码收紧到 production-ready 状态:
+
+### v0.6.0 triple-series (30 commits 增量, `b699035`–`812dbc0`)
+
+| Series | commits | 范围 |
+|---|---|---|
+| **A — deployment audit** | `b699035` `221f1db` `aaaf22b` `f7857df` `d913888` `5a51cae` `a7339a1` `4bea92b` + 3 cleanup (`0552e1e` `76d53ba` `6a2d7e2`) | 修 🔴 BLOCKER (deploy.sh:65 /api/health 不存在 / tar secret leak / trigger-web 0.0.0.0:3030 / Next.js app 没 nginx vhost) + 🟡 WARN (CI build step / .env.example 补齐 / drizzle migration idempotent / Task 15 TODO / USAGE.md cleanup) |
+| **B — TypeScript error cleanup** | `8f18473` + `67fecab` (follow-up) `d3720f2` + `e10ddb7` (follow-up) `042ae9b` `c49a8fa` `ec1e50f` `97a1c8a` `a519e73` `1bcfd92` `97bc131` | 17 pre-existing TS errors 清零 (C4 加 `npm run build` 后变 CI red) — 跨 SDK v4.5 API 升级 / vitest 类型 drift / OpenAI API key env schema / ffprobe-static ambient types / Provider literal narrowing |
+| **C — preventive audit** | `c029fec` `3d1fde1` `cd19577` `6820689` `812dbc0` | ESLint `no-explicit-any` rule 启用 / next.config reactStrictMode + poweredByHeader:false + 安全 headers + output: 'standalone' / lib/db production timeouts / lib/logger pino redact secrets |
+
+### v0.6.0 closure 状态 (2026-07-28)
+
+```
+tsc --noEmit        → 0 errors
+npm run lint        → ✔ No warnings or errors
+npm test            → 203/203 ✓
+npm run build       → ✓ (含 /api/health, /api/jobs, /api/jobs/[id] 等 25 routes)
+git status          → working tree clean
+version             → 0.6.0 (从 0.5.5 bump)
+```
+
+**已 closed gaps**:
+- Deploy 死锁 (deploy.sh:65 `/api/health` 现在存在, 200 返)
+- Tarball 静默 secret leak (`.env*` exclude)
+- Production 端口暴露面 (Next.js + trigger-web 现在都 loopback bind, nginx 在前)
+- Trigger.dev default weak secret (`${VAR:-default}` → `${VAR:?msg}` fail-fast)
+- CI 静默 break (next build step)
+- 17 TS errors 累积 debt
+- ESLint rule not found 红
+- Drizzle migration 不 idempotent 重跑抛错
+- 9 个 env key 在 .env.example 缺位
+- Stale Task 15 TODO + broken inline predicate
+- production-grade pg pool tuning (connection/idle/statement/query timeout)
+- Pino 无 redact — secrets 不应入 log
+
+### 剩余 (留 v0.6.1+ 或更后, **不是** v0.6.0 scope)
+
+- Web UI dashboard (spec §4.4 React + SSE)
+- LLM fallback helper 集成到 llm.ts (§4.3 LLM-side)
+- QG-plan / script / html 集成到 pipeline.ts (§4.2 LLM-side)
+- TTS Edge fallback (§4.3)
+- Dockerfile (long-term 项目; standalone output 已铺路, 现可加 Dockerfile 完成)
+- Push to remote + PR (待 user git workflow 决策)
+
+### 现 truth-source
+
+| 信息类型 | 真实源 |
+|---|---|
+| 仓库 commit 历史 | `git log --oneline -50` |
+| 仓库状态 | `git status` + `npm test` + `npx tsc --noEmit` + `npm run lint` + `cat package.json \| grep version` |
+| v0.0.1 plan obsoleted sections | `docs/superpowers/plans/v0_0_1_implementation-status.md` |
+| 部署 readiness checklist | `memory/project-auto-explainer-saas.md` "部署 readiness" 段 |
+
+### Plan §9 引用更新 (v0.6.0 时代)
+
+- 完整实施轨迹 → `git log --oneline -50` (现 ~50 commits 包括 v0.5 + v0.6.0 triple-series)
+- 测试: 203/203 unit + integration 全过
+- 部署 readiness: memory file + implementation-status.md 双向链接
