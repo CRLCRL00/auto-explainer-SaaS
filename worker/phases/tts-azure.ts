@@ -52,8 +52,11 @@ export async function synthesizeToBuffer(opts: TtsOptions): Promise<ArrayBuffer>
       ) => void;
     }).speakTextAsync(
       opts.text,
-      (result) => {
+      (result: speechsdk.SpeechSynthesisResult) => {
         synthesizer.close();
+        // SpeechSynthesisResult.reason 是 SpeechSDK.ResultReason enum,
+        // 不是 plain string. 之前 inline \`{ reason: string }\` 把 enum 退化成
+        // string, TS2367 比较报错. 现在用 SDK 类型避免类型收缩.
         if (result.reason === speechsdk.ResultReason.SynthesizingAudioCompleted) {
           resolve(result.audioData);
         } else {
