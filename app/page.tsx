@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
+  const router = useRouter();
   const [topic, setTopic] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ jobId: string } | { error: string } | null>(null);
@@ -33,6 +35,9 @@ export default function Home() {
         setResult({ error: data.error ?? `status_${res.status}` });
       } else {
         setResult({ jobId: data.jobId });
+        // 自动跳转到 status 页 (解决 '点击开始生成没反应' 的 UX 缺口 — user 等不直观).
+        // 200ms 延迟让 result state 渲染完再 nav, 避免 React 18 strict mode 双 render 闪烁.
+        setTimeout(() => router.push(`/jobs/${data.jobId}`), 200);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'unknown';
