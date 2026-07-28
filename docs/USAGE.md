@@ -113,10 +113,14 @@ sudo tee /etc/systemd/system/auto-explainer-nginx.service <<EOF
 Description=auto-explainer-saas nginx
 After=network.target
 [Service]
-Type=forking
-ExecStart=/usr/sbin/nginx -g 'daemon on;'
+# P1 audit W6: Type=notify 现代 systemd 模式 (vs 之前 Type=forking + 'daemon on;'
+# — forking 模式在某些 systemd 版本下 systemctl status 报 'deactivating' 状态).
+# 要求 nginx 编译时带 --with-notify (Debian/Ubuntu 默认 ✓) + /etc/nginx/nginx.conf
+# 里有 'daemon off;' 让 master 留前台, sd_notify 通知 systemd 已 ready.
+Type=notify
+ExecStart=/usr/sbin/nginx -g 'daemon off;'
 ExecReload=/usr/sbin/nginx -s reload
-ExecStop=/usr/sbin/nginx -s stop
+ExecStop=/usr/sbin/nginx -s quit
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -182,8 +186,9 @@ psql $DATABASE_URL -c "SELECT job_id, run_id, status, started_at, finished_at FR
 # 清 stale failed jobs (>30d 前 + status=failed)
 psql $DATABASE_URL -c "DELETE FROM jobs WHERE status='failed' AND updated_at < NOW() - INTERVAL '30 days';"
 
-# manual 跑 0006 migration (init-trigger-db 已 D1 commit)
-psql $DATABASE_URL -c "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS human_in_loop_reason varchar(64);"
+# 注: human_in_loop_reason 列自动由 drizzle/0006_human_in_loop_reason.sql
+# 应用 (现 IF NOT EXISTS 守卫, 重跑 no-op). 不需手动 ALTER; 跑 `npm run db:migrate`
+# 即可.
 ```
 
 ---
@@ -297,7 +302,7 @@ QG-final (lib/pipeline/qg-checks.ts) 抛 `[non-retryable] qg-final: mp4 size=X <
 
 ### 9.5 CI Test 失败
 
-`.github/workflows/ci.yml` 跑 `npm test --reporter=verbose`. 查 GitHub Actions log 找具体失败 phase。修代码后 push, 自动 rerun。
+`.github/workflows/ci.yml` 跑 `npm test -- --reporter=verbose` (注意 `--` 分隔传 vitest CLI flag). 查 GitHub Actions log 找具体失败 phase。修代码后 push, 自动 rerun。
 
 ---
 
