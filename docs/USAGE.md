@@ -59,7 +59,20 @@ curl -u "$USER:$PASS" \
 后台工作流（自动化，无需人工）：
 1. POST 返回后立即 enqueue 到 Trigger.dev（lib/trigger.ts + lib/llm.ts）
 2. Trigger.dev worker runtime 拉 task → 调 `runPipeline(jobId)` ([worker/pipeline.ts](../worker/pipeline.ts))
-3. 7 个 phase 顺序跑 + retry + QG 检查 (见 §5)
+3. **8 个 phase** 顺序跑 + retry + QG 检查:
+
+   | order | phase 值 | 跑什么 | 文件 |
+   |---|---|---|---|
+   | 1 | `planning_done` | OutlinePlanner 调 LLM → 5-beat outline 落 `plan.json` | `phases/outline.ts` |
+   | 2 | `planning_qg` | QG-plan helper 校验 (beats 数量 / duration 总和 / title 非空) | `phases/qg-plan.ts` |
+   | 3 | `script_ready` | ScriptWriter 调 LLM → narration/caption 落 `script.json` | `phases/script.ts` |
+   | 4 | `html_ready` | 模板渲染 + selector 注入, 写 `video.html` | `phases/html.ts` |
+   | 5 | `tts_caption` | Azure TTS + Edge fallback 合成 mp3 → 落 `tts.mp3` + `job_artifacts` | `phases/tts.ts` |
+   | 6 | `probing` | headless Chrome 打开 html，console 无 ERR, DOM 5-beat 容器在 | `phases/probe.ts` |
+   | 7 | `recording_done` | puppeteer 录屏 → frames PNG + QG-render | `phases/record.ts` |
+   | 8 | `creatomate_rendering` | Creatomate SaaS 合成 mp4 + QG-final ffprobe | `phases/encode-creatomate.ts` |
+
+   撞墙拐点 (spec §4.2): 每个 phase 用 `runPhaseWithRetry` 包, `maxAttempts: 2`, retry helper 撞墙抛 `RetryWallHitError`; 之后 owner 看 `jobs.human_in_loop_reason` 决定下一步。
 
 ---
 
