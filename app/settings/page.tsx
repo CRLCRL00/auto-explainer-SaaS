@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 //                          (DeepSeek / DashScope / OpenRouter / Ollama / vLLM ... 都兼容)
 // Claude 快捷按钮：点一下把 model 输入框填成 Sonnet/Opus/Haiku，不动 provider。
 
-type Provider = 'anthropic' | 'openai-compatible';
+type Provider = 'anthropic' | 'openai-compatible' | 'minimax';
 
 interface CurrentSettings {
   provider: Provider;
