@@ -99,7 +99,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/srv/auto-explainer/current
-ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -p 3000
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -p 3000 -H 127.0.0.1
 Restart=on-failure
 EnvironmentFile=/srv/auto-explainer/shared/.env.local
 [Install]

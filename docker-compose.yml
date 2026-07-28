@@ -84,10 +84,15 @@ services:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/triggerdev
       REDIS_URL: redis://redis:6379
       CLICKHOUSE_URL: http://clickhouse:8123
-      SECRET_KEY: ${TRIGGER_SECRET_KEY:-trigger-dev-secret-change-me}
+      # 强制 prod 必填 — `${VAR:-default}` 在 VAR unset 时静默用 weak default,
+      # prod 是安全洞. Bash ${VAR:?msg} 在 VAR empty/unset 时 fail-fast, 把
+      # responsibility 推给 deploy host 的 .env.local. dev 启动方式不变.
+      SECRET_KEY: ${TRIGGER_SECRET_KEY:?TRIGGER_SECRET_KEY is required (set in .env.local or compose override)}
       NODE_ENV: development
+    # Bind 到 host 127.0.0.1 — 不暴露公网. nginx (docs/nginx-auto-explainer.conf)
+    # 在 :80 前置反代, basic auth 保护 dashboard. 不再让 :3030 直 0.0.0.0.
     ports:
-      - "3030:3030"
+      - "127.0.0.1:3030:3030"
 volumes:
   pgdata:
   chdata:
