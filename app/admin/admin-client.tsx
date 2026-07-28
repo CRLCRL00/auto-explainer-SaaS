@@ -1,0 +1,217 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+
+interface AdminJobRow {
+  id: string;
+  status: string;
+  phase: string;
+  attempts: number;
+  inputType: string;
+  inputPayload: { topic?: string };
+  humanInLoopReason: string | null;
+  lastError: { message?: string } | null;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+  createdAt: Date;
+}
+
+interface Props {
+  initialJobs: AdminJobRow[];
+}
+
+// v0.6.1 R6: client component for /admin — polls /api/admin/jobs every 3s.
+// SSE 留 v0.7+ (spec §4.4 完整版).
+
+export function AdminDashboardClient({ initialJobs }: Props) {
+  const [jobs, setJobs] = useState<AdminJobRow[]>(initialJobs);
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [onlyHumanInLoop, setOnlyHumanInLoop] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+
+  useEffect(() => {
+    let cancelled = false;
+    async function poll() {
+      try {
+        const params = new URLSearchParams();
+        if (filterStatus !== 'all') params.set('status', filterStatus);
+        if (onlyHumanInLoop) params.set('humanInLoop', '1');
+        const res = await fetch(`/api/admin/jobs?${params.toString()}`);
+        if (!res.ok) {
+          // eslint-disable-next-line no-console
+          console.error('admin jobs poll failed', res.status);
+          return;
+        }
+        const data = await res.json() as { jobs: AdminJobRow[] };
+        if (!cancelled) {
+          // Convert date strings back to Date if needed (Next.js auto-serializes)
+          const normalized = data.jobs.map((j) => ({
+            ...j,
+            createdAt: j.createdAt ? new Date(j.createdAt as unknown as string) : new Date(0),
+            startedAt: j.startedAt ? new Date(j.startedAt as unknown as string) : null,
+            finishedAt: j.finishedAt ? new Date(j.finishedAt as unknown as string) : null,
+            lastError: j.lastError ?? null,
+          }));
+          setJobs(normalized);
+          setLastRefresh(new Date());
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('admin jobs poll error', e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    setLoading(true);
+    poll();
+    const id = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [filterStatus, onlyHumanInLoop]);
+
+  // Stats
+  const stats = {
+    total: jobs.length,
+    running: jobs.filter((j) => j.status === 'running').length,
+    done: jobs.filter((j) => j.status === 'done').length,
+    failed: jobs.filter((j) => j.status === 'failed').length,
+    wallHit: jobs.filter((j) => j.humanInLoopReason !== null).length,
+  };
+
+  return (
+    <div>
+      {/* Stats panel */}
+      <section style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <StatCard label="Total" value={stats.total} />
+        <StatCard label="Running" value={stats.running} accent="#58a6ff" />
+        <StatCard label="Done" value={stats.done} accent="#3fb950" />
+        <StatCard label="Failed" value={stats.failed} accent="#f85149" />
+        <StatCard label="Wall-hit (need attention)" value={stats.wallHit} accent="#d29922" />
+      </section>
+
+      {/* Filters */}
+      <section style={{ marginBottom: '16px', display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <label>
+          Status:&nbsp;
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            style={{ background: '#161b22', color: '#c9d1d9', border: '1px solid #30363d', padding: '4px 8px', borderRadius: '4px' }}
+          >
+            <option value="all">all</option>
+            <option value="pending">pending</option>
+            <option value="running">running</option>
+            <option value="done">done</option>
+            <option value="failed">failed</option>
+          </select>
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={onlyHumanInLoop}
+            onChange={(e) => setOnlyHumanInLoop(e.target.checked)}
+            data-testid="filter-wallhit"
+          />
+          &nbsp;Only wall-hit jobs
+        </label>
+        <span style={{ marginLeft: 'auto', color: '#8b949e', fontSize: '13px' }}>
+          {loading ? '刷新中...' : `last refresh: ${lastRefresh.toLocaleTimeString()}`}
+        </span>
+      </section>
+
+      {/* Jobs table */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+        <thead>
+          <tr style={{ borderBottom: '2px solid #30363d', textAlign: 'left', color: '#8b949e' }}>
+            <th style={{ padding: '8px' }}>Job ID</th>
+            <th style={{ padding: '8px' }}>Topic</th>
+            <th style={{ padding: '8px' }}>Status</th>
+            <th style={{ padding: '8px' }}>Phase</th>
+            <th style={{ padding: '8px' }}>Attempts</th>
+            <th style={{ padding: '8px' }}>Wall reason</th>
+            <th style={{ padding: '8px' }}>Last error</th>
+            <th style={{ padding: '8px' }}>Started</th>
+            <th style={{ padding: '8px' }}>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {jobs.map((j) => (
+            <tr key={j.id} style={{ borderBottom: '1px solid #21262d' }}>
+              <td style={{ padding: '8px', fontFamily: 'ui-monospace, monospace', fontSize: '12px' }}>{j.id.slice(0, 8)}…</td>
+              <td style={{ padding: '8px' }}>{j.inputPayload.topic || '—'}</td>
+              <td style={{ padding: '8px' }}>
+                <StatusBadge status={j.status} />
+              </td>
+              <td style={{ padding: '8px', color: '#8b949e' }}>{j.phase}</td>
+              <td style={{ padding: '8px' }}>{j.attempts}</td>
+              <td style={{ padding: '8px', color: j.humanInLoopReason ? '#d29922' : '#8b949e', fontFamily: 'ui-monospace', fontSize: '12px' }}>
+                {j.humanInLoopReason ?? '—'}
+              </td>
+              <td style={{ padding: '8px', color: '#f85149', fontSize: '12px', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {j.lastError?.message ?? '—'}
+              </td>
+              <td style={{ padding: '8px', color: '#8b949e', fontSize: '12px' }}>
+                {j.startedAt ? j.startedAt.toLocaleString() : '—'}
+              </td>
+              <td style={{ padding: '8px', color: '#8b949e', fontSize: '12px' }}>
+                {j.createdAt.toLocaleString()}
+              </td>
+            </tr>
+          ))}
+          {jobs.length === 0 ? (
+            <tr>
+              <td colSpan={9} style={{ padding: '20px', textAlign: 'center', color: '#8b949e' }}>
+                没有 jobs (当前 filter).
+              </td>
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function StatCard({ label, value, accent }: { label: string; value: number; accent?: string }) {
+  return (
+    <div
+      style={{
+        background: '#161b22',
+        padding: '12px 16px',
+        borderRadius: '6px',
+        border: '1px solid #30363d',
+        minWidth: '120px',
+      }}
+    >
+      <div style={{ color: '#8b949e', fontSize: '12px', textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ color: accent ?? '#c9d1d9', fontSize: '24px', fontWeight: 700, marginTop: '4px' }}>{value}</div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colorMap: Record<string, string> = {
+    pending: '#8b949e',
+    running: '#58a6ff',
+    done: '#3fb950',
+    failed: '#f85149',
+    dead: '#6e7681',
+  };
+  return (
+    <span
+      style={{
+        background: colorMap[status] ?? '#8b949e',
+        color: '#0d1117',
+        padding: '2px 8px',
+        borderRadius: '12px',
+        fontSize: '12px',
+        fontWeight: 600,
+      }}
+    >
+      {status}
+    </span>
+  );
+}
