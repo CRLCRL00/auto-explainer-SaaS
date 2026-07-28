@@ -4,8 +4,8 @@
 //   - frames 是 Puppeteer record 阶段 (32 buffer, 30fps, ~30s) 输出的 PNG 序列.
 //   - frame sampling: 30 帧按 ~1s 间隔抽成 multi-frame composition
 //     (不再是单帧 30s 静态图). 这是 v0+ multi-frame commit 的关键改进.
-//   - 读 script.json (ScriptWriter 产物) → 提取 caption 字幕层 (per-beat Text elements)
-//   - 可选地调用 Azure TTS 合成 audio.mp3, 加为 Audio element.
+//   - 读 script.json (ScriptWriter 产物) → 提取 caption 字幕层 (per-beat Text elements).
+//   - 读 tts.mp3 (phaseTts 已合成) → 加为 Audio element (v0.6.1 R2).
 //   - submit 给 Creatomate.Source → render → download mp4 → 落 job_artifacts.
 //   - 写 4 个 lifecycle events (creatomate_render_started/_progress/_completed/_failed).
 //
@@ -15,8 +15,11 @@
 // 环境依赖 (P0 全量, lib/env.ts 全部 required):
 //   - CREATOMATE_API_KEY 必填
 //   - CREATOMATE_BASE_URL / TEMPLATE_ID / POLL_*: optional, 有默认值
-//   - AZURE_SPEECH_KEY + AZURE_SPEECH_REGION: optional. 配齐时合成中文 TTS audio.
+//   - TTS audio 流 (R2): phaseTts (commit b3919d0 集成) 已写 storage/jobs/{id}/tts.mp3
+//     含 Azure 主 + Edge 备 fallback — encode-creatomate 现在只读, 自身无需
+//     AZURE_SPEECH_* config.
 //   - script.json 缺失时降级为无字幕 (templates fallback).
+//   - tts.mp3 缺失时降级为无 audio (mp4 仍出, 仅无声).
 //
 // SDK 真实 package: 'creatomate' (不是 @creatomate/creatomate — 后者 404).
 
@@ -29,7 +32,6 @@ import { getDb } from '@/lib/db';
 import { jobArtifacts, jobs } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
 import { safeRecordEvent, CreatomateEvents } from '@/lib/job-events';
-import { synthesizeToBuffer } from './tts';
 
 export const DEFAULT_OUTPUT_WIDTH = 1080;
 export const DEFAULT_OUTPUT_HEIGHT = 1920;
@@ -102,21 +104,17 @@ export async function phaseEncodeCreatomate(
   // 2. Best-effort 读 script.json (caption + TTS 输入).
   const script = await readScriptSafe(jobDir);
 
-  // 3. Best-effort TTS 合成 (Azure 配置齐 + script 存在).
-  let audioPath: string | null = null;
-  if (env.AZURE_SPEECH_KEY && env.AZURE_SPEECH_REGION && script) {
-    try {
-      const narration = script.beats.map((b) => b.tts_text).join('。 ');
-      const buf = await synthesizeToBuffer({ text: narration, voice: 'zh-CN-XiaoxiaoNeural' });
-      audioPath = path.join(jobDir, 'audio.mp3');
-      await fs.writeFile(audioPath, Buffer.from(buf));
-    } catch (err) {
-      logger.warn(
-        { jobId, err: err instanceof Error ? err.message : String(err) },
-        'TTS skipped (Azure unreachable or key invalid); audio element dropped',
-      );
-      audioPath = null;
-    }
+  // 3. Best-effort TTS audio (读 phaseTts 已合成的 tts.mp3).
+  //
+  // v0.6.1 R2 refactor: 不再在 encode-creatomate 内部 inline TTS 合成
+  // (重复调 Azure, 与 phaseTts 已合成的 tts.mp3 多一次 SDK 初始化).
+  // 改为读 storage/jobs/{id}/tts.mp3 (phaseTts 产物, 含 Azure+Edge fallback).
+  // 缺文件 → 无 Audio element (不阻塞 mp4 输出).
+  let audioPath: string | null = path.join(jobDir, 'tts.mp3');
+  try {
+    await fs.access(audioPath);
+  } catch {
+    audioPath = null;
   }
 
   logger.info(
