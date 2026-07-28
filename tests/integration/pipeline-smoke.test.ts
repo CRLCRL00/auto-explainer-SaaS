@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
+import { eq } from 'drizzle-orm';
 
 // Smoke test gates:
 //   RUN_SLOW_TESTS=1            -> opt-in to running real E2E
@@ -62,9 +63,7 @@ describe('pipeline smoke', () => {
     const stat = await fs.stat(outPath);
     expect(stat.size).toBeGreaterThan(10_000);
 
-    const [updated] = await db.select().from(jobs).where((j: any) => j.id as any).limit(1);
-    // TODO(Task 14/15 land): replace above no-op predicate with `eq(jobs.id, jobId)`
-    // from drizzle-orm so updated refers to the seeded job, not an arbitrary row.
+    const [updated] = await db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
     expect(updated.status).toBe('done');
   }, { timeout: 600_000 });
 
@@ -104,7 +103,7 @@ describe('pipeline smoke', () => {
     const stat = await fs.stat(outPath);
     expect(stat.size).toBeGreaterThan(10_000);
 
-    const [updated] = await db.select().from(jobs).where((j: any) => j.id as any).limit(1);
+    const [updated] = await db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
     expect(updated.status).toBe('done');
   }, { timeout: 600_000 });
 });
