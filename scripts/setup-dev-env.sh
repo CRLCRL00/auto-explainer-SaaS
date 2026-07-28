@@ -93,7 +93,8 @@ echo "✅ .env.local 已生成 (含 schema-valid placeholder)."
 if command -v psql >/dev/null 2>&1; then
   for sql in \
     drizzle/0005_phase_creatomate_rendering.sql \
-    drizzle/0006_human_in_loop_reason.sql; do
+    drizzle/0006_human_in_loop_reason.sql \
+    drizzle/0007_phase_planning_qg.sql; do
     if [ -f "$sql" ]; then
       # IF NOT EXISTS 在 migration 顶部; 一些 ALTER 不支持 IF NOT EXISTS 但 schema 写时已处理.
       # 不让 psql exit on error (e.g. column already exists) — 用 OR true.
