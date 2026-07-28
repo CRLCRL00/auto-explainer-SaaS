@@ -38,8 +38,20 @@ describe('docs/nginx-auto-explainer.conf (v0.5+ audit P1)', () => {
     content = readFileSync(NGINX_CONF_PATH, 'utf8');
     const proxyPassLines = content.match(/^\s*proxy_pass\s+[^;]+;/gm) ?? [];
     expect(proxyPassLines.length).toBeGreaterThan(0);
+    // proxy_pass 可以是直指 loopback ('http://127.0.0.1:PORT') 或指向 upstream
+    // ('http://<name>' where <name> 在文件别处定义指向 loopback). 后者是
+    // 更现代的写法 — abstract 的好处是改 IP 只改 upstream 不动每个 location.
+    const upstreamBlocks = content.match(/upstream\s+(\w+)\s*\{[^}]+\}/g) ?? [];
     for (const line of proxyPassLines) {
-      expect(line).toMatch(/(127\.0\.0\.1|localhost)/);
+      const directLoopback = line.match(/(127\.0\.0\.1|localhost)/);
+      if (directLoopback) continue;
+      // 否则必须指向一个 upstream block
+      const refMatch = line.match(/proxy_pass\s+https?:\/\/(\S+);/);
+      expect(refMatch).not.toBeNull();
+      const upstreamName = refMatch![1].trim();
+      const upstreamDef = upstreamBlocks.find((b) => b.startsWith(`upstream ${upstreamName}`));
+      expect(upstreamDef).toBeDefined();
+      expect(upstreamDef).toMatch(/(127\.0\.0\.1|localhost)/);
     }
   });
 
