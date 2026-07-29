@@ -123,7 +123,12 @@ export function AdminDashboardClient({ initialJobs }: Props) {
     return () => {
       for (const es of sources) es.close();
     };
-  }, [jobs.map((j) => j.id).join(',')]); // re-subscribe when job IDs change
+    // Intentional: re-subscribe only when the *set of job IDs* changes, not on
+    // every status/phase update. The SSE stream itself pushes state updates,
+    // so re-subscribing on every state tick would cause an infinite re-mount
+    // loop. The .join(',') expression is stable enough as a deps array sentinel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs.map((j) => j.id).join(',')]);
 
   // Stats
   const stats = {

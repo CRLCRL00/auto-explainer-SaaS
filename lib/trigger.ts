@@ -165,6 +165,9 @@ export async function inlineDevEnqueue(payload: { jobId: string }): Promise<{ ru
         finishedAt: new Date(),
       }).where(eq((jobs as { id: unknown }).id, payload.jobId));
 
+      // inlineDevEnqueue runs only in dev mode (NODE_ENV !== 'production').
+      // No logger import — lib/logger depends on lib/env which test mocks may
+      // nullify; console.* is fine for this dev-only code path.
       // eslint-disable-next-line no-console
       console.log(`[dev inline] ${payload.jobId} → done (5s walk-through)`);
     } catch (err) {
