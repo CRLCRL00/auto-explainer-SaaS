@@ -20,8 +20,9 @@ interface Props {
   initialJobs: AdminJobRow[];
 }
 
-// v0.6.1 R6: client component for /admin — polls /api/admin/jobs every 3s.
-// SSE 留 v0.7+ (spec §4.4 完整版).
+// v0.7: client component for /admin — uses Server-Sent Events instead of polling.
+// Subscribe to /api/admin/jobs/[id]/events for each row (one EventSource per row)
+// → live push when retry / phase change.
 
 export function AdminDashboardClient({ initialJobs }: Props) {
   const [jobs, setJobs] = useState<AdminJobRow[]>(initialJobs);
@@ -30,6 +31,7 @@ export function AdminDashboardClient({ initialJobs }: Props) {
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
+  // Initial fetch + filter change fetch (REST, not SSE)
   useEffect(() => {
     let cancelled = false;
     async function poll() {
@@ -45,7 +47,6 @@ export function AdminDashboardClient({ initialJobs }: Props) {
         }
         const data = await res.json() as { jobs: AdminJobRow[] };
         if (!cancelled) {
-          // Convert date strings back to Date if needed (Next.js auto-serializes)
           const normalized = data.jobs.map((j) => ({
             ...j,
             createdAt: j.createdAt ? new Date(j.createdAt as unknown as string) : new Date(0),
@@ -66,12 +67,63 @@ export function AdminDashboardClient({ initialJobs }: Props) {
 
     setLoading(true);
     poll();
-    const id = setInterval(poll, 3000);
+    const id = setInterval(poll, 30_000); // 30s polling as fallback
     return () => {
       cancelled = true;
       clearInterval(id);
     };
   }, [filterStatus, onlyHumanInLoop]);
+
+  // SSE per-job subscription for live updates
+  useEffect(() => {
+    const sources: EventSource[] = [];
+    for (const j of jobs) {
+      const es = new EventSource(`/api/admin/jobs/${j.id}/events`);
+      es.addEventListener('state', (ev) => {
+        try {
+          const data = JSON.parse((ev as MessageEvent).data) as {
+            id: string;
+            status: string;
+            phase: string;
+            attempts: number;
+            humanInLoopReason: string | null;
+            lastError: { message?: string } | null;
+            finishedAt: string | null;
+            startedAt: string | null;
+            updatedAt: string;
+          };
+          setJobs((prev) =>
+            prev.map((p) =>
+              p.id === data.id
+                ? {
+                    ...p,
+                    status: data.status,
+                    phase: data.phase,
+                    attempts: data.attempts,
+                    humanInLoopReason: data.humanInLoopReason,
+                    lastError: data.lastError,
+                    finishedAt: data.finishedAt ? new Date(data.finishedAt) : null,
+                    startedAt: data.startedAt ? new Date(data.startedAt) : null,
+                  }
+                : p,
+            ),
+          );
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('SSE state parse error', e);
+        }
+      });
+      es.onerror = () => {
+        // EventSource auto-reconnects on close; we just log
+        // eslint-disable-next-line no-console
+        console.warn('SSE connection error for job', j.id);
+      };
+      sources.push(es);
+    }
+    return () => {
+      for (const es of sources) es.close();
+    };
+  }, [jobs.map((j) => j.id).join(',')]); // re-subscribe when job IDs change
 
   // Stats
   const stats = {
@@ -136,6 +188,7 @@ export function AdminDashboardClient({ initialJobs }: Props) {
             <th style={{ padding: '8px' }}>Last error</th>
             <th style={{ padding: '8px' }}>Started</th>
             <th style={{ padding: '8px' }}>Created</th>
+            <th style={{ padding: '8px' }}>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -160,11 +213,14 @@ export function AdminDashboardClient({ initialJobs }: Props) {
               <td style={{ padding: '8px', color: '#8b949e', fontSize: '12px' }}>
                 {j.createdAt.toLocaleString()}
               </td>
+              <td style={{ padding: '8px' }}>
+                <RetryButton jobId={j.id} status={j.status} wallHit={j.humanInLoopReason !== null} />
+              </td>
             </tr>
           ))}
           {jobs.length === 0 ? (
             <tr>
-              <td colSpan={9} style={{ padding: '20px', textAlign: 'center', color: '#8b949e' }}>
+              <td colSpan={10} style={{ padding: '20px', textAlign: 'center', color: '#8b949e' }}>
                 没有 jobs (当前 filter).
               </td>
             </tr>
@@ -212,6 +268,62 @@ function StatusBadge({ status }: { status: string }) {
       }}
     >
       {status}
+    </span>
+  );
+}
+
+function RetryButton({ jobId, status, wallHit }: { jobId: string; status: string; wallHit: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  const retryable = status === 'failed' || status === 'dead' || wallHit;
+
+  async function onRetry() {
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}/retry`, { method: 'POST' });
+      const data = await res.json() as { retried: boolean; runId?: string; error?: string; detail?: string };
+      if (data.retried) {
+        setResult(`✓ retried (runId=${data.runId?.slice(0, 8)}…)`);
+      } else {
+        setResult(`✗ ${data.error ?? 'unknown'}: ${data.detail ?? ''}`);
+      }
+    } catch (e) {
+      setResult(`✗ ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!retryable) return <span style={{ color: '#8b949e' }}>—</span>;
+
+  return (
+    <span>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={busy}
+        data-testid={`retry-${jobId.slice(0, 8)}`}
+        style={{
+          background: '#3fb950',
+          color: '#0d1117',
+          border: 'none',
+          padding: '4px 10px',
+          borderRadius: '4px',
+          cursor: busy ? 'wait' : 'pointer',
+          fontSize: '12px',
+          fontWeight: 600,
+          opacity: busy ? 0.6 : 1,
+        }}
+      >
+        {busy ? '…' : 'Retry'}
+      </button>
+      {result && (
+        <span style={{ marginLeft: '6px', fontSize: '11px', color: result.startsWith('✓') ? '#3fb950' : '#f85149' }}>
+          {result}
+        </span>
+      )}
     </span>
   );
 }
