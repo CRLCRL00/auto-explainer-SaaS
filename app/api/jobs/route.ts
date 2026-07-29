@@ -67,12 +67,15 @@ export async function POST(req: Request) {
     }).returning();
 
     // enqueue 分支:
-    //   - production (NODE_ENV='production') → 走真 trigger.dev SDK 真发请求
-    //     到 trigger-web:3030. 需要 TRIGGER_* env 配齐 + container healthy.
-    //   - dev (其他 NODE_ENV) → 走 inlineDevEnqueue — fire-and-forget runPipeline
-    //     in-process, 不依赖 trigger-web container. 让 dev '点击开始生成' 立刻能跑.
+    //   - production (NODE_ENV='production') AND RUN_TRIGGER_DEV=0 → 走真
+    //     trigger.dev SDK 真发请求到 trigger-web:3030. 需要 TRIGGER_* env
+    //     配齐 + container healthy.
+    //   - 其他情况 (NODE_ENV != production 或 RUN_TRIGGER_DEV=1) → 走
+    //     inlineDevEnqueue — fire-and-forget runPipeline in-process, 不依赖
+    //     trigger-web container. 让 dev '点击开始生成' 立刻能跑; 也让
+    //     prod 在 trigger-web 未部署/未配齐 env 时仍能 walk-through dev 模式.
     const { runId } =
-      process.env.NODE_ENV === 'production'
+      process.env.NODE_ENV === 'production' && process.env.RUN_TRIGGER_DEV !== '1'
         ? await triggerJob({ jobId: job.id })
         : await inlineDevEnqueue({ jobId: job.id });
 

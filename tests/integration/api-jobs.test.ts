@@ -15,6 +15,11 @@ const mockTriggerSdk = {
 
 vi.mock('@/lib/trigger', () => ({
   triggerJob: vi.fn().mockResolvedValue({ runId: 'run-test-abc-123' }),
+  // v0.7: route also imports inlineDevEnqueue (for prod-without-Trigger.dev
+  // walk-through mode). Mock it too so the test passes regardless of which
+  // branch the route picks (NODE_ENV=production + RUN_TRIGGER_DEV=0 → triggerJob;
+  // otherwise → inlineDevEnqueue).
+  inlineDevEnqueue: vi.fn().mockReturnValue({ runId: 'run-dev-inert' }),
 }));
 
 beforeAll(() => {

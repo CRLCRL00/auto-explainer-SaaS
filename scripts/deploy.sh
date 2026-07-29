@@ -49,12 +49,20 @@ echo "🐳 Starting long-running docker services (trigger-web / clickhouse)…"
 # .env (transfer to $APP_DIR/shared/.env.local before first run) 需含:
 #   TRIGGER_SECRET_KEY — 留空时用 'trigger-dev-secret-change-me' (dev only)
 #   TRIGGER_PROJECT_REF — 触发 web dashboard 注册时给的 project ref
-ssh "$VPS" "cd $APP_DIR/current && \
-  docker compose --env-file $APP_DIR/shared/.env.local \
-    pull trigger-web clickhouse"
-ssh "$VPS" "cd $APP_DIR/current && \
-  docker compose --env-file $APP_DIR/shared/.env.local \
-    up -d --no-deps --remove-orphans trigger-web clickhouse"
+#
+# v0.7 first-deploy: skip trigger-web/clickhouse. RUN_TRIGGER_DEV=1 (dev inline
+# walk-through). Real Trigger.dev worker can be wired in v0.8+ via
+# TRIGGER_DEV_DOCKER=1.
+if [ "${TRIGGER_DEV_DOCKER:-0}" = "1" ]; then
+  ssh "$VPS" "cd $APP_DIR/current && \
+    docker compose --env-file $APP_DIR/shared/.env.local \
+      pull trigger-web clickhouse"
+  ssh "$VPS" "cd $APP_DIR/current && \
+    docker compose --env-file $APP_DIR/shared/.env.local \
+      up -d --no-deps --remove-orphans trigger-web clickhouse"
+else
+  echo "⏭️  Skipping trigger-web/clickhouse (TRIGGER_DEV_DOCKER=0, RUN_TRIGGER_DEV=1)"
+fi
 
 echo "🐳 Waiting for trigger-web readiness (3030/api/v1)…"
 # 简单 retry + sleep 30s max — healthcheck 自己做(alpine image 没 curl)
@@ -68,8 +76,17 @@ done
 
 echo "🔄 Restarting services…"
 # P1 PR3: BullMQ worker 进程不再启; Trigger.dev worker runtime 在 docker-compose trigger-web 容器内
-# 通过自管调度. 仅保留 web (Next.js) + nginx (basic auth + 反代 dashboard).
-ssh "$VPS" "sudo systemctl restart auto-explainer-web auto-explainer-nginx"
+# 通过自管调度. 仅保留 web (Next.js, 由 PM2 管理) + nginx (basic auth + 反代 dashboard).
+#
+# v0.7 deploy: PM2 is the user's chosen process manager (per `pm2 list` on prod —
+# aigc-api / aigc-web / aigc-worker / resume-app-backend all run under PM2). We
+# follow the same pattern. Web app is registered via
+# /srv/auto-explainer/shared/ecosystem.config.cjs.
+ssh "$VPS" "\
+  cd /srv/auto-explainer/current && \
+  pm2 delete auto-explainer-web 2>/dev/null || true; \
+  pm2 start /srv/auto-explainer/shared/ecosystem.config.cjs --only auto-explainer-web && \
+  pm2 save"
 
 echo "✅ Health check (Next.js web)…"
 sleep 3
