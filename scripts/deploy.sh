@@ -75,6 +75,27 @@ echo "✅ Health check (Next.js web)…"
 sleep 3
 curl -sf http://127.0.0.1:3000/api/health || (echo "❌ health check failed" && exit 1)
 
+# v0.7 B3: Sync nginx vhost conf + reload. Next.js sets X-Frame-Options /
+# X-Content-Type-Options / Referrer-Policy in next.config.mjs, but nginx
+# strips upstream headers on proxy_pass by default — we need to re-emit them
+# at the nginx layer so they reach the client regardless of Next.js runtime.
+# This block:
+#   1. Copies docs/nginx-auto-explainer.conf → /etc/nginx/sites-enabled/
+#   2. Validates with `sudo nginx -t` (abort deploy if invalid)
+#   3. `sudo systemctl reload auto-explainer-nginx` (graceful — doesn't drop
+#      existing connections, unlike restart)
+#
+# Skip with NGINX_RELOAD=0 if you've made manual edits to the on-disk conf
+# that you don't want overwritten (e.g. custom server_name).
+if [ "${NGINX_RELOAD:-1}" = "1" ]; then
+  echo "🔒 Syncing nginx vhost conf + reload (B3 security headers)…"
+  ssh "$VPS" "sudo cp /srv/auto-explainer/current/docs/nginx-auto-explainer.conf \
+                  /etc/nginx/sites-enabled/auto-explainer.conf && \
+              sudo nginx -t && \
+              sudo systemctl reload auto-explainer-nginx" || \
+    { echo "❌ nginx sync/reload failed — abort deploy"; exit 1; }
+fi
+
 # P1 PR3: 二次 health check trigger.dev dashboard (basic auth gated).
 # 需要在 deploy host 配 TRIGGER_BASIC_AUTH_USER/PASS env (与 docs/nginx-auto-explainer.conf htpasswd 一致).
 if [ -n "${TRIGGER_BASIC_AUTH_USER:-}" ] && [ -n "${TRIGGER_BASIC_AUTH_PASS:-}" ]; then
