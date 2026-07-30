@@ -137,6 +137,11 @@ export function AdminDashboardClient({ initialJobs }: Props) {
     done: jobs.filter((j) => j.status === 'done').length,
     failed: jobs.filter((j) => j.status === 'failed').length,
     wallHit: jobs.filter((j) => j.humanInLoopReason !== null).length,
+    // Subset: wall-hit jobs that are also in failed state (the most common
+    // wall-hit outcome — QG-flagged + status flipped to failed). Surfaced as
+    // a sub-text on the Wall-hit card so users don't double-count failed +
+    // wall-hit (they're often the same jobs).
+    wallHitAndFailed: jobs.filter((j) => j.humanInLoopReason !== null && j.status === 'failed').length,
   };
 
   return (
@@ -147,7 +152,12 @@ export function AdminDashboardClient({ initialJobs }: Props) {
         <StatCard label="Running" value={stats.running} accent="#58a6ff" />
         <StatCard label="Done" value={stats.done} accent="#3fb950" />
         <StatCard label="Failed" value={stats.failed} accent="#f85149" />
-        <StatCard label="Wall-hit (need attention)" value={stats.wallHit} accent="#d29922" />
+        <StatCard
+          label="Wall-hit (need attention)"
+          value={stats.wallHit}
+          accent="#d29922"
+          sub={stats.wallHitAndFailed > 0 ? `${stats.wallHitAndFailed} also failed — see Retry column` : undefined}
+        />
       </section>
 
       {/* Filters */}
@@ -236,7 +246,7 @@ export function AdminDashboardClient({ initialJobs }: Props) {
   );
 }
 
-function StatCard({ label, value, accent }: { label: string; value: number; accent?: string }) {
+function StatCard({ label, value, accent, sub }: { label: string; value: number; accent?: string; sub?: string }) {
   return (
     <div
       style={{
@@ -249,6 +259,7 @@ function StatCard({ label, value, accent }: { label: string; value: number; acce
     >
       <div style={{ color: '#8b949e', fontSize: '12px', textTransform: 'uppercase' }}>{label}</div>
       <div style={{ color: accent ?? '#c9d1d9', fontSize: '24px', fontWeight: 700, marginTop: '4px' }}>{value}</div>
+      {sub && <div style={{ color: '#8b949e', fontSize: '11px', marginTop: '4px' }}>{sub}</div>}
     </div>
   );
 }

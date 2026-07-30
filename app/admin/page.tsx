@@ -4,15 +4,16 @@ import { getDb } from '@/lib/db';
 import { jobs } from '@/lib/schema';
 import { AdminDashboardClient } from './admin-client';
 
-// v0.6.1 R6: spec §4.4 admin dashboard (v0.7+ 是完整 web UI 含 SSE.
-// 这次 commit 是 minimal slice — server component 查 jobs list, client
-// component 渲染 table + filter buttons. SSE 留后续 commit.)
+// v0.7.3: spec §4.4 admin dashboard — full web UI with SSE live updates.
+// v0.6.1 R6 was the minimal slice (table + filter + 3s polling); v0.7.x
+// added retry button + SSE per-job event stream + basic-auth enforcement
+// across admin endpoints.
 //
 // 设计:
 //   - server component (默认 Next.js) 查 db, 传纯 data 给 client
-//   - client component (admin-client.tsx) 渲染 table + filters
-//   - 状态 sync 用 client-side refetch (3s polling, 不是 SSE — SSE 在 v0.7+)
-//   - auth: nginx basic auth prod 已守 + dev mode 跳过
+//   - client component (admin-client.tsx) 渲染 table + filters + SSE
+//   - 状态 sync: 30s polling (fallback) + SSE per-job live push
+//   - auth: nginx basic auth prod 已守 + endpoint belt-and-suspenders
 
 interface AdminJobRow {
   id: string;
@@ -60,7 +61,7 @@ export default async function AdminDashboardPage() {
       <header style={{ borderBottom: '1px solid #30363d', paddingBottom: '16px', marginBottom: '20px' }}>
         <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#58a6ff' }}>Auto-Explainer · Admin Dashboard</h1>
         <p style={{ color: '#8b949e', fontSize: '14px', marginTop: '4px' }}>
-          v0.6.1 R6 · spec §4.4 · 监控 job 列表 + 撞墙 (human-in-loop) 过滤 · SSE 留 v0.7+
+          v0.7.3 · spec §4.4 完整 admin · 监控 job 列表 + 撞墙 (human-in-loop) 过滤 + Retry 按钮 + SSE 实时更新
         </p>
         <nav style={{ marginTop: '12px', display: 'flex', gap: '12px' }}>
           <Link href="/" style={{ color: '#58a6ff' }}>← Home</Link>
