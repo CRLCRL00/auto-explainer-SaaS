@@ -60,8 +60,10 @@ export async function POST(
   }
 
   // Re-enqueue (sync dispatch — same pattern as POST /api/jobs)
+  // v0.7.1: also honor RUN_TRIGGER_DEV. Same pattern as POST /api/jobs.
+  // prod-without-real-Trigger.dev (RUN_TRIGGER_DEV=1) → inlineDevEnqueue.
   const { runId } =
-    process.env.NODE_ENV === 'production'
+    process.env.NODE_ENV === 'production' && process.env.RUN_TRIGGER_DEV !== '1'
       ? await triggerJob({ jobId: job.id })
       : await inlineDevEnqueue({ jobId: job.id });
 
