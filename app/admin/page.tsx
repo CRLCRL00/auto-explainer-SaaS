@@ -4,6 +4,12 @@ import { getDb } from '@/lib/db';
 import { jobs } from '@/lib/schema';
 import { AdminDashboardClient } from './admin-client';
 
+// v0.7.4: Force dynamic rendering. Without this, Next.js prerenders /admin
+// at build time → static HTML shows stale job list (e.g. 50 jobs from
+// build time, even when DB has 14). We need server-side query on every
+// request to show live data.
+export const dynamic = 'force-dynamic';
+
 // v0.7.3: spec §4.4 admin dashboard — full web UI with SSE live updates.
 // v0.6.1 R6 was the minimal slice (table + filter + 3s polling); v0.7.x
 // added retry button + SSE per-job event stream + basic-auth enforcement
